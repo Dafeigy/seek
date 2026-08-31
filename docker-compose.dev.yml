@@ -1,0 +1,39 @@
+name: seek-dev
+
+services:
+  postgres:
+    build:
+      context: ./infra/postgres
+      dockerfile: Dockerfile
+    image: seek/postgres:17-dev
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seek}
+      POSTGRES_USER: ${POSTGRES_USER:-seek}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seek_dev_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - seek_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    stop_grace_period: 30s
+
+  redis:
+    image: redis:8
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - seek_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  seek_pgdata:
+  seek_redisdata:

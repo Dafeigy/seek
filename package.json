@@ -1,0 +1,17 @@
+{
+  "name": "seek",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:migrate": "pnpm --filter @seek/db migrate",
+    "db:seed": "pnpm --filter @seek/db seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.6"
+  }
+}

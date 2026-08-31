@@ -1,0 +1,8 @@
+{
+  "name": "@seek/db",
+  "private": true,
+  "type": "module",
+  "scripts": { "migrate": "tsx src/migrate.ts", "seed": "tsx src/seed.ts" },
+  "dependencies": { "postgres": "^3.4.7", "yjs": "^13.6.27" },
+  "devDependencies": { "tsx": "^4.20.3", "typescript": "^5.9.2" }
+}
