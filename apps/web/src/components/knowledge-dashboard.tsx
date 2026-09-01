@@ -1,66 +1,110 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-  Bell, ChevronRight, ChevronsUpDown, Clock3, FileText, Folder,
+  AlertTriangle, Bell, ChevronRight, ChevronsUpDown, Clock3, Copy, FileText, Folder, FolderInput,
   FolderLock, HelpCircle, Home, Inbox, Menu, MessageCircle, Mic2,
-  PanelLeftClose, Plus, Search, Settings2, SquarePen, Trash2, Waves, X,
+  MoreHorizontal, PanelLeftClose, Plus, Search, Settings2, SlidersHorizontal, SquarePen, Trash2, Waves, X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SeekCompanion } from "@/components/seek-companion";
+import { DEFAULT_PROJECT, PRIVATE_PROJECTS, TEAM_PROJECTS, type DocumentSummary, type ProjectSummary } from "@/lib/documents";
 
-const teamProjects = [
-  {
-    title: "平台基础设施",
-    documents: [
-      { title: "模型部署规范", href: "/documents/model-deployment" },
-      { title: "服务监控与告警", href: "/documents/new" },
-      { title: "发布流程检查单", href: "/documents/new" },
-    ],
-  },
-  {
-    title: "算法研究",
-    documents: [
-      { title: "实验记录模板", href: "/documents/new" },
-      { title: "模型评测周报", href: "/documents/new" },
-    ],
-  },
-  {
-    title: "客户端",
-    documents: [
-      { title: "Web 端交互规范", href: "/documents/new" },
-      { title: "移动端设计系统", href: "/documents/new" },
-    ],
-  },
+function useDocuments() {
+  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const load = useCallback(() => {
+    void fetch("/api/documents")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Document list failed: ${response.status}`);
+        return response.json() as Promise<DocumentSummary[]>;
+      })
+      .then(setDocuments)
+      .catch((error: unknown) => console.warn("Document list load failed.", error));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener("seek:documents-changed", load);
+    return () => window.removeEventListener("seek:documents-changed", load);
+  }, [load]);
+  return { documents, reload: load };
+}
+
+const defaultProjects: ProjectSummary[] = [
+  ...TEAM_PROJECTS.map((name) => ({ name, isPrivate: false })),
+  ...PRIVATE_PROJECTS.map((name) => ({ name, isPrivate: true })),
 ];
 
-const privateProjects = [
-  {
-    title: "个人工作台",
-    documents: [
-      { title: "本周计划", href: "/documents/new" },
-      { title: "灵感与备忘", href: "/documents/new" },
-    ],
-  },
-];
+function useProjects() {
+  const [projects, setProjects] = useState<ProjectSummary[]>(defaultProjects);
+  const load = useCallback(() => {
+    void fetch("/api/projects")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Project list failed: ${response.status}`);
+        return response.json() as Promise<ProjectSummary[]>;
+      })
+      .then(setProjects)
+      .catch((error: unknown) => console.warn("Project list load failed.", error));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener("seek:projects-changed", load);
+    return () => window.removeEventListener("seek:projects-changed", load);
+  }, [load]);
+  return { projects, reload: load };
+}
 
-const documents = [
-  { title: "模型部署规范", project: "平台基础设施", updated: "刚刚", author: "林墨", href: "/documents/model-deployment", initials: "林" },
-  { title: "服务监控与告警", project: "平台基础设施", updated: "昨天", author: "陈一", href: "/documents/new", initials: "陈" },
-  { title: "实验记录模板", project: "算法研究", updated: "3 天前", author: "你", href: "/documents/new", initials: "你" },
-  { title: "Web 端交互规范", project: "客户端", updated: "5 天前", author: "周语", href: "/documents/new", initials: "周" },
-];
+function relativeTime(value: string) {
+  const elapsed = Date.now() - new Date(value).getTime();
+  if (elapsed < 60_000) return "刚刚";
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} 分钟前`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} 小时前`;
+  return `${Math.floor(elapsed / 86_400_000)} 天前`;
+}
 
 function greetingForNow() {
   const hour = new Date().getHours();
   return hour >= 5 && hour < 12 ? "早上好" : hour < 18 ? "下午好" : "晚上好";
 }
 
+type DocumentDialog = {
+  kind: "move" | "copy" | "properties" | "delete";
+  document: DocumentSummary;
+};
+
+const sidebarActionButtonClassName = "flex size-7 cursor-pointer items-center justify-center rounded-md text-soft transition-colors hover:bg-black/[.045] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40";
+
 export function SidebarContent({ compact, closeMobile, currentPage = "home" }: { compact: boolean; closeMobile?: () => void; currentPage?: "home" | "document" }) {
+  const router = useRouter();
   const [expandedProjects, setExpandedProjects] = useState(() => new Set(["平台基础设施", "个人工作台"]));
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [operationStatus, setOperationStatus] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<DocumentDialog | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftProject, setDraftProject] = useState<string>(DEFAULT_PROJECT);
+  const [dialogSaving, setDialogSaving] = useState(false);
+  const [projectDialog, setProjectDialog] = useState<{ isPrivate: boolean } | null>(null);
+  const [draftProjectName, setDraftProjectName] = useState("");
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const { documents, reload } = useDocuments();
+  const { projects, reload: reloadProjects } = useProjects();
+  const projectNames = projects.map((project) => project.name);
+
+  useEffect(() => {
+    if (!dialog && !projectDialog) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (dialog && !dialogSaving) setDialog(null);
+      if (projectDialog && !projectSaving) setProjectDialog(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dialog, dialogSaving, projectDialog, projectSaving]);
 
   function toggleProject(title: string) {
     setExpandedProjects((current) => {
@@ -71,26 +115,175 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
     });
   }
 
-  const renderProjectSection = (label: string, projects: typeof teamProjects, isPrivate = false) => <section aria-labelledby={`sidebar-${label}`}>
+  function openDialog(kind: DocumentDialog["kind"], document: DocumentSummary) {
+    setDraftTitle(document.title);
+    setDraftProject(kind === "move" || kind === "copy" ? projectNames.find((project) => project !== document.project) ?? document.project : document.project);
+    setDialog({ kind, document });
+  }
+
+  function openProjectDialog(isPrivate: boolean) {
+    setDraftProjectName("");
+    setProjectError(null);
+    setProjectDialog({ isPrivate });
+  }
+
+  async function createProject() {
+    if (!projectDialog || !draftProjectName.trim()) return;
+    setProjectSaving(true);
+    setProjectError(null);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: draftProjectName, isPrivate: projectDialog.isPrivate }),
+      });
+      if (response.status === 409) {
+        setProjectError("同名项目已经存在");
+        return;
+      }
+      if (!response.ok) throw new Error(`Project creation failed: ${response.status}`);
+      const project = await response.json() as ProjectSummary;
+      setExpandedProjects((current) => new Set(current).add(project.name));
+      setOperationStatus(`已创建项目“${project.name}”`);
+      setProjectDialog(null);
+      reloadProjects();
+      window.dispatchEvent(new Event("seek:projects-changed"));
+      window.setTimeout(() => setOperationStatus(null), 1800);
+    } catch (error) {
+      console.warn("Project creation failed.", error);
+      setProjectError("新建项目失败，请重试");
+    } finally {
+      setProjectSaving(false);
+    }
+  }
+
+  async function changeProject(document: DocumentSummary, project: string, copy: boolean) {
+    if (!copy && document.project === project) return true;
+    setOperationStatus(copy ? "正在复制文档…" : "正在移动文档…");
+    try {
+      const response = await fetch(copy ? "/api/documents" : `/api/documents/${encodeURIComponent(document.id)}`, {
+        method: copy ? "POST" : "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(copy ? { sourceDocumentId: document.id, project } : { project }),
+      });
+      if (!response.ok) throw new Error(`Document operation failed: ${response.status}`);
+      setExpandedProjects((current) => new Set(current).add(project));
+      setOperationStatus(copy ? `已复制到“${project}”` : `已移动到“${project}”`);
+      reload();
+      window.dispatchEvent(new Event("seek:documents-changed"));
+      window.setTimeout(() => setOperationStatus(null), 1800);
+      return true;
+    } catch (error) {
+      console.warn("Document project operation failed.", error);
+      setOperationStatus("操作失败，请重试");
+      return false;
+    }
+  }
+
+  async function saveProperties(document: DocumentSummary) {
+    const response = await fetch(`/api/documents/${encodeURIComponent(document.id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: draftTitle, project: draftProject }),
+    });
+    if (!response.ok) throw new Error(`Property update failed: ${response.status}`);
+    setExpandedProjects((current) => new Set(current).add(draftProject));
+    setOperationStatus("文档属性已保存");
+    reload();
+    window.dispatchEvent(new Event("seek:documents-changed"));
+    window.setTimeout(() => setOperationStatus(null), 1800);
+  }
+
+  async function deleteDocument(document: DocumentSummary) {
+    const response = await fetch(`/api/documents/${encodeURIComponent(document.id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
+    window.localStorage.removeItem(`seek:document:${document.id}`);
+    setOperationStatus(`已删除“${document.title}”`);
+    reload();
+    window.dispatchEvent(new Event("seek:documents-changed"));
+    if (window.location.pathname === `/documents/${encodeURIComponent(document.id)}`) {
+      router.replace("/" as never);
+      return;
+    }
+    window.setTimeout(() => setOperationStatus(null), 1800);
+  }
+
+  async function submitDialog() {
+    if (!dialog) return;
+    setDialogSaving(true);
+    try {
+      if (dialog.kind === "move" || dialog.kind === "copy") {
+        const changed = await changeProject(dialog.document, draftProject, dialog.kind === "copy");
+        if (!changed) return;
+      } else if (dialog.kind === "properties") {
+        await saveProperties(dialog.document);
+      } else {
+        await deleteDocument(dialog.document);
+      }
+      setDialog(null);
+    } catch (error) {
+      console.warn("Document dialog operation failed.", error);
+      setOperationStatus("操作失败，请重试");
+    } finally {
+      setDialogSaving(false);
+    }
+  }
+
+  function onDrop(event: React.DragEvent, project: string) {
+    event.preventDefault();
+    setDropTarget(null);
+    const id = event.dataTransfer.getData("application/x-seek-document");
+    const document = documents.find((item) => item.id === id);
+    if (document) void changeProject(document, project, event.altKey);
+  }
+
+  const renderProjectSection = (label: string, sectionProjects: readonly string[], isPrivate = false) => <section aria-labelledby={`sidebar-${label}`}>
     <div className="mb-1 mt-5 flex h-8 items-center justify-between px-3 text-[11px] font-medium text-soft">
       <span id={`sidebar-${label}`}>{label}</span>
-      <button className="flex size-7 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-black/[.045] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40" aria-label={`新建${label}`}><Plus className="size-3.5" /></button>
+      <button type="button" onClick={() => openProjectDialog(isPrivate)} className={sidebarActionButtonClassName} aria-label={`新建${label}`} title="新建项目"><Plus className="size-3.5" /></button>
     </div>
-    <div className="space-y-0.5">{projects.map((project) => {
-      const expanded = expandedProjects.has(project.title);
-      return <div key={project.title}>
-        <button onClick={() => toggleProject(project.title)} aria-expanded={expanded} className="group flex h-9 w-full cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted transition-colors hover:bg-black/[.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40">
+    <div className="space-y-0.5">{sectionProjects.map((project) => {
+      const projectDocuments = documents.filter((document) => document.project === project);
+      const expanded = expandedProjects.has(project);
+      return <div key={project} onDragEnter={() => setDropTarget(project)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = event.altKey ? "copy" : "move"; }} onDrop={(event) => onDrop(event, project)}>
+        <div className={cn("group flex h-9 items-center rounded-lg transition-colors", dropTarget === project ? "bg-emerald-100 ring-1 ring-[#29C16A]/40" : "hover:bg-black/[.04]")}>
+        <button onClick={() => toggleProject(project)} aria-expanded={expanded} className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[13px] text-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40">
           <ChevronRight className={cn("size-3.5 shrink-0 text-soft transition-transform duration-200", expanded && "rotate-90")} />
           {isPrivate ? <FolderLock className="size-3.5 shrink-0 text-soft group-hover:text-[#159B4E]" /> : <Folder className="size-3.5 shrink-0 text-soft group-hover:text-[#159B4E]" />}
-          <span className="min-w-0 flex-1 truncate text-left">{project.title}</span>
-          <span className="pr-1 text-[10px] text-soft">{project.documents.length}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{project}</span>
         </button>
-        {expanded && <div className="ml-[15px] border-l border-black/[.07] pl-2">{project.documents.map((document) => <Link onClick={closeMobile} href={document.href as never} key={`${project.title}-${document.title}`} className="group flex h-8 items-center gap-2 rounded-lg px-2 text-[12px] text-muted transition-colors hover:bg-black/[.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40">
-          <FileText className="size-3.5 shrink-0 text-soft group-hover:text-[#159B4E]" /><span className="truncate">{document.title}</span>
-        </Link>)}</div>}
+        <span className="group/create relative mr-3 size-7 shrink-0">
+          <span aria-label={`${projectDocuments.length} 篇文档`} className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] text-soft transition-opacity group-hover/create:opacity-0 group-focus-within/create:opacity-0">{projectDocuments.length}</span>
+          <Link href={`/documents/new?project=${encodeURIComponent(project)}` as never} onClick={closeMobile} aria-label={`在${project}中新建文档`} title="新建文档" className={cn(sidebarActionButtonClassName, "absolute inset-0 opacity-0 transition-opacity group-hover/create:opacity-100 focus:opacity-100")}><Plus className="size-3.5" /></Link>
+        </span>
+        </div>
+        {expanded && <div className="ml-[15px] border-l border-black/[.07] pl-2">{projectDocuments.length === 0 ? <p className="px-2 py-1.5 text-[11px] text-soft">当前项目还没有文档哦</p> : projectDocuments.map((document) => <div
+          draggable
+          onDragStart={(event) => { event.dataTransfer.setData("application/x-seek-document", document.id); event.dataTransfer.effectAllowed = "copyMove"; }}
+          key={document.id}
+          title="拖拽移动；按住 Alt/Option 拖拽复制"
+          className="group/document relative flex h-8 items-center rounded-lg text-[12px] text-muted transition-colors hover:bg-black/[.04] hover:text-ink"
+        >
+          <Link onClick={closeMobile} href={`/documents/${encodeURIComponent(document.id)}` as never} className="flex min-w-0 flex-1 items-center gap-2 px-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40"><FileText className="size-3.5 shrink-0 text-soft group-hover/document:text-[#159B4E]" /><span className="truncate">{document.title}</span></Link>
+          <details className="relative mr-3">
+            <summary aria-label={`${document.title}操作`} className={cn(sidebarActionButtonClassName, "list-none opacity-0 group-hover/document:opacity-100 focus:opacity-100")}><MoreHorizontal className="size-3.5" /></summary>
+            <div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-black/10 bg-white p-1.5 shadow-xl">
+              <button type="button" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("move", document); }} className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] hover:bg-black/[.04]"><FolderInput className="size-3.5 text-soft" />移动</button>
+              <button type="button" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("copy", document); }} className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] hover:bg-black/[.04]"><Copy className="size-3.5 text-soft" />复制到</button>
+              <button type="button" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("properties", document); }} className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] hover:bg-black/[.04]"><SlidersHorizontal className="size-3.5 text-soft" />设置文档属性</button>
+              <div className="my-1 h-px bg-black/[.06]" />
+              <button type="button" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("delete", document); }} className="flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] text-red-600 hover:bg-red-50"><Trash2 className="size-3.5" />删除文档</button>
+            </div>
+          </details>
+        </div>)}</div>}
       </div>;
     })}</div>
   </section>;
+
+  const dialogTitle = dialog?.kind === "move" ? "移动文档"
+    : dialog?.kind === "copy" ? "复制文档"
+      : dialog?.kind === "properties" ? "文档属性"
+        : "删除文档";
 
   return <div className="flex h-full flex-col">
     <div className={cn("flex h-16 items-center", compact ? "justify-center px-2" : "px-3")}>
@@ -119,8 +312,9 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
       {!compact && <>
         <div className="my-4 h-px bg-black/[.055]" />
         <nav aria-label="知识导航"><button onClick={closeMobile} className="group flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 text-[13px] text-muted transition-colors hover:bg-black/[.04] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40"><Waves className="size-4 text-soft group-hover:text-[#159B4E]" /><span>知识海</span></button></nav>
-        {renderProjectSection("项目", teamProjects)}
-        {renderProjectSection("私人项目", privateProjects, true)}
+        {operationStatus && <p role="status" className="mx-2 mt-3 rounded-lg bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700">{operationStatus}</p>}
+        {renderProjectSection("项目", projects.filter((project) => !project.isPrivate).map((project) => project.name))}
+        {renderProjectSection("私人项目", projects.filter((project) => project.isPrivate).map((project) => project.name), true)}
       </>}
     </div>
     <div className="border-t border-black/[.055] p-2">
@@ -132,6 +326,49 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
         <Link href={"/documents/new" as never} onClick={closeMobile} title="新建文档" aria-label="新建文档" className="flex size-11 shrink-0 cursor-pointer items-center justify-center self-center rounded-full bg-white text-[#159B4E] shadow-[0_1px_2px_rgba(15,23,42,.06)] ring-1 ring-black/[.07] transition-colors hover:bg-[#f9fbf9] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#29C16A]/40"><SquarePen className="size-4" /></Link>
       </div>
     </div>
+    {projectDialog && createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="presentation">
+      <button type="button" className="absolute inset-0 cursor-default bg-black/25 backdrop-blur-[2px]" onClick={() => { if (!projectSaving) setProjectDialog(null); }} aria-label="关闭对话框" />
+      <form onSubmit={(event) => { event.preventDefault(); void createProject(); }} role="dialog" aria-modal="true" aria-labelledby="project-dialog-title" className="relative w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1"><h2 id="project-dialog-title" className="text-base font-semibold">新建{projectDialog.isPrivate ? "私人" : ""}项目</h2><p className="mt-1 text-xs text-soft">创建后即可在项目中添加和管理文档。</p></div>
+          <button type="button" disabled={projectSaving} onClick={() => setProjectDialog(null)} className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-black/[.04] hover:text-ink disabled:opacity-50" aria-label="关闭"><X className="size-4" /></button>
+        </div>
+        <label className="mt-5 block"><span className="mb-1.5 block text-xs font-medium text-muted">项目名称</span><input autoFocus value={draftProjectName} maxLength={60} onChange={(event) => { setDraftProjectName(event.target.value); setProjectError(null); }} placeholder="输入项目名称" className="h-10 w-full rounded-xl border border-black/10 px-3 text-sm outline-none focus:border-[#29C16A]/50 focus:ring-2 focus:ring-[#29C16A]/10" /></label>
+        {projectError && <p role="alert" className="mt-2 text-xs text-red-600">{projectError}</p>}
+        <div className="mt-6 flex justify-end gap-2"><button type="button" disabled={projectSaving} onClick={() => setProjectDialog(null)} className="h-9 rounded-lg px-4 text-sm text-muted hover:bg-black/[.04] disabled:opacity-50">取消</button><button type="submit" disabled={projectSaving || !draftProjectName.trim()} className="h-9 rounded-lg bg-[#159B4E] px-4 text-sm font-medium text-white hover:bg-[#117c40] disabled:cursor-not-allowed disabled:opacity-50">{projectSaving ? "创建中…" : "创建"}</button></div>
+      </form>
+    </div>, document.body)}
+    {dialog && createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="presentation">
+      <button type="button" className="absolute inset-0 cursor-default bg-black/25 backdrop-blur-[2px]" onClick={() => { if (!dialogSaving) setDialog(null); }} aria-label="关闭对话框" />
+      <section role="dialog" aria-modal="true" aria-labelledby="document-dialog-title" className="relative w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1"><h2 id="document-dialog-title" className="text-base font-semibold">{dialogTitle}</h2><p className="mt-1 truncate text-xs text-soft">{dialog.document.title}</p></div>
+          <button type="button" disabled={dialogSaving} onClick={() => setDialog(null)} className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-black/[.04] hover:text-ink disabled:opacity-50" aria-label="关闭"><X className="size-4" /></button>
+        </div>
+
+        {(dialog.kind === "move" || dialog.kind === "copy") && <div className="mt-5">
+          <p className="mb-2 text-xs font-medium text-muted">选择目标项目</p>
+          <div className="grid gap-2">{projectNames.map((project) => {
+            const disabled = dialog.kind === "move" && project === dialog.document.project;
+            return <label key={project} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors", draftProject === project ? "border-[#29C16A]/50 bg-emerald-50" : "border-black/[.07] hover:bg-black/[.025]", disabled && "cursor-not-allowed opacity-45")}>
+              <input type="radio" name="target-project" value={project} checked={draftProject === project} disabled={disabled} onChange={() => setDraftProject(project)} className="accent-[#159B4E]" />
+              <Folder className="size-4 text-soft" /><span className="flex-1">{project}</span>{project === dialog.document.project && <span className="text-[10px] text-soft">当前项目</span>}
+            </label>;
+          })}</div>
+          {dialog.kind === "copy" && <p className="mt-3 text-xs text-soft">将创建一份内容相同、可独立编辑的新文档。</p>}
+        </div>}
+
+        {dialog.kind === "properties" && <div className="mt-5 space-y-4">
+          <label className="block"><span className="mb-1.5 block text-xs font-medium text-muted">文档标题</span><input autoFocus value={draftTitle} maxLength={120} onChange={(event) => setDraftTitle(event.target.value)} className="h-10 w-full rounded-xl border border-black/10 px-3 text-sm outline-none focus:border-[#29C16A]/50 focus:ring-2 focus:ring-[#29C16A]/10" /></label>
+          <label className="block"><span className="mb-1.5 block text-xs font-medium text-muted">所属项目</span><select value={draftProject} onChange={(event) => setDraftProject(event.target.value)} className="h-10 w-full rounded-xl border border-black/10 bg-white px-3 text-sm outline-none focus:border-[#29C16A]/50 focus:ring-2 focus:ring-[#29C16A]/10">{projectNames.map((project) => <option key={project} value={project}>{project}</option>)}</select></label>
+          <dl className="grid grid-cols-2 gap-3 rounded-xl bg-black/[.025] p-3 text-xs"><div><dt className="text-soft">创建时间</dt><dd className="mt-1 text-muted">{new Date(dialog.document.createdAt).toLocaleString("zh-CN")}</dd></div><div><dt className="text-soft">最近更新</dt><dd className="mt-1 text-muted">{new Date(dialog.document.updatedAt).toLocaleString("zh-CN")}</dd></div></dl>
+        </div>}
+
+        {dialog.kind === "delete" && <div className="mt-5 flex gap-3 rounded-xl bg-red-50 p-4 text-red-700"><AlertTriangle className="mt-0.5 size-5 shrink-0" /><div><p className="text-sm font-medium">确定删除这篇文档吗？</p><p className="mt-1 text-xs leading-5 text-red-600">文档内容和版本历史将被永久删除，此操作无法撤销。</p></div></div>}
+
+        <div className="mt-6 flex justify-end gap-2"><button type="button" disabled={dialogSaving} onClick={() => setDialog(null)} className="h-9 rounded-lg px-4 text-sm text-muted hover:bg-black/[.04] disabled:opacity-50">取消</button><button type="button" autoFocus={dialog.kind !== "properties"} disabled={dialogSaving || ((dialog.kind === "move" || dialog.kind === "copy") && !draftProject) || (dialog.kind === "properties" && !draftTitle.trim())} onClick={() => void submitDialog()} className={cn("h-9 rounded-lg px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50", dialog.kind === "delete" ? "bg-red-600 hover:bg-red-700" : "bg-[#159B4E] hover:bg-[#117c40]")}>{dialogSaving ? "处理中…" : dialog.kind === "move" ? "移动" : dialog.kind === "copy" ? "创建副本" : dialog.kind === "properties" ? "保存" : "确认删除"}</button></div>
+      </section>
+    </div>, document.body)}
   </div>;
 }
 
@@ -139,6 +376,7 @@ export function KnowledgeDashboard() {
   const [compact, setCompact] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [greeting] = useState(greetingForNow);
+  const { documents } = useDocuments();
 
   return <main className="min-h-screen bg-canvas text-ink">
     {mobileOpen && <button className="fixed inset-0 z-40 cursor-default bg-black/20 backdrop-blur-[2px] md:hidden" onClick={() => setMobileOpen(false)} aria-label="关闭侧边栏" />}
@@ -163,10 +401,11 @@ export function KnowledgeDashboard() {
           <div className="mb-4 flex items-end justify-between"><div><h2 className="text-sm font-semibold">最近打开</h2><p className="mt-1 text-xs text-soft">继续上一次的阅读和编辑</p></div><button className="h-9 cursor-pointer rounded-lg px-2 text-xs text-muted transition-colors hover:bg-black/[.035] hover:text-ink">查看全部</button></div>
           <div className="overflow-hidden rounded-xl border border-black/[.06] bg-white shadow-[0_1px_2px_rgba(15,23,42,.025)]">
             <div className="hidden h-8 grid-cols-[minmax(0,1fr)_180px_110px] items-center border-b border-black/[.045] px-4 text-[10px] font-medium text-soft sm:grid"><span>名称</span><span>最后编辑</span><span className="text-right">打开时间</span></div>
-            {documents.map((document) => <Link href={document.href as never} key={document.title} className="group grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-black/[.045] px-3 transition-colors last:border-0 hover:bg-[#f2faf5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#29C16A]/40 sm:grid-cols-[minmax(0,1fr)_180px_110px] sm:px-4">
+            {documents.length === 0 && <div className="px-4 py-8 text-center text-xs text-soft">还没有文档。点击左下角的新建文档开始记录。</div>}
+            {documents.slice(0, 4).map((document) => <Link href={`/documents/${encodeURIComponent(document.id)}` as never} key={document.id} className="group grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-black/[.045] px-3 transition-colors last:border-0 hover:bg-[#f2faf5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#29C16A]/40 sm:grid-cols-[minmax(0,1fr)_180px_110px] sm:px-4">
               <span className="flex min-w-0 items-center gap-2.5"><FileText className="size-4 shrink-0 text-soft transition-colors group-hover:text-[#159B4E]" /><span className="min-w-0"><span className="block truncate text-[13px] font-medium">{document.title}</span><span className="block truncate text-[10px] text-soft sm:hidden">{document.project}</span></span></span>
-              <span className="hidden min-w-0 items-center gap-2 text-[11px] text-muted sm:flex"><span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-black/[.045] text-[9px] font-medium">{document.initials}</span><span className="truncate">{document.author} · {document.project}</span></span>
-              <span className="flex items-center justify-end gap-1.5 text-[11px] text-soft"><Clock3 className="size-3" />{document.updated}</span>
+              <span className="hidden min-w-0 items-center gap-2 text-[11px] text-muted sm:flex"><span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-black/[.045] text-[9px] font-medium">你</span><span className="truncate">你 · {document.project}</span></span>
+              <span className="flex items-center justify-end gap-1.5 text-[11px] text-soft"><Clock3 className="size-3" />{relativeTime(document.updatedAt)}</span>
             </Link>)}
           </div>
         </section>

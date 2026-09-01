@@ -26,12 +26,9 @@ type ServerDocument = {
 };
 
 export function createDefaultSnapshot(initialTitle: string): DocumentSnapshot {
+  void initialTitle;
   return {
-    blocks: [
-      { type: "heading", props: { level: 1 }, content: initialTitle },
-      { type: "paragraph", content: "开始记录团队知识。支持 Markdown 风格快捷输入、代码块、公式和 Mermaid。" },
-      { type: "paragraph", content: "输入 / 打开块菜单，输入 $$ 创建数学公式，输入 ```mermaid 创建技术图表。" },
-    ],
+    blocks: [{ type: "paragraph", content: "" }],
     markdown: "",
     plainText: "",
     version: 0,

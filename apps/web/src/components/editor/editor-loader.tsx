@@ -15,6 +15,6 @@ const SeekEditor = dynamic(
   },
 );
 
-export function EditorLoader(props: { documentId: string; initialTitle: string }) {
+export function EditorLoader(props: { documentId: string; initialTitle: string; initialProject: string }) {
   return <SeekEditor {...props} />;
 }

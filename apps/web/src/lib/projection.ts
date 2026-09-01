@@ -1,5 +1,9 @@
 export type Projection = { markdown: string; plainText: string };
 
+export function isEmptyProjection(projection: Projection): boolean {
+  return !projection.markdown.trim() && !projection.plainText.trim();
+}
+
 type Block = { type?: string; props?: { level?: number; language?: string; checked?: boolean }; content?: unknown; children?: Block[] };
 
 function textOf(content: unknown): string {

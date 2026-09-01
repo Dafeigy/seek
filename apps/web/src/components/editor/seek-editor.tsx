@@ -21,7 +21,7 @@ import {
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { Check, CloudOff, History, Wifi } from "lucide-react";
-import { projectBlocks } from "@/lib/projection";
+import { isEmptyProjection, projectBlocks } from "@/lib/projection";
 import {
   createDefaultSnapshot,
   documentContentFingerprint,
@@ -31,10 +31,9 @@ import {
   type DocumentSnapshot,
   type RecoveryResult,
 } from "@/lib/document-recovery";
-import { SeekSlashMenu } from "@/components/editor/seek-slash-menu";
 import * as Y from "yjs";
 
-type Props = { documentId: string; initialTitle: string };
+type Props = { documentId: string; initialTitle: string; initialProject: string };
 
 const seekSchema = BlockNoteSchema.create().extend({
   blockSpecs: { mathBlock: createReactMathBlockSpec() },
@@ -49,7 +48,14 @@ function blockText(content: unknown): string {
 
 const cacheKey = (documentId: string) => `seek:document:${documentId}`;
 
-export function SeekEditor({ documentId, initialTitle }: Props) {
+function formatSavedTime(savedAt: string | null): string {
+  if (!savedAt) return "";
+  const date = new Date(savedAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+export function SeekEditor({ documentId, initialTitle, initialProject }: Props) {
   const [recovery, setRecovery] = useState<RecoveryResult | null>(null);
 
   useEffect(() => {
@@ -83,10 +89,10 @@ export function SeekEditor({ documentId, initialTitle }: Props) {
     return <div className="h-[680px] animate-pulse rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-400">正在对比本地缓存与 PostgreSQL…</div>;
   }
 
-  return <RecoveredSeekEditor documentId={documentId} initialTitle={initialTitle} recovery={recovery} />;
+  return <RecoveredSeekEditor documentId={documentId} initialTitle={initialTitle} initialProject={initialProject} recovery={recovery} />;
 }
 
-function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { recovery: RecoveryResult }) {
+function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recovery }: Props & { recovery: RecoveryResult }) {
   const [savedAt, setSavedAt] = useState<string | null>(recovery.snapshot.version > 0 ? recovery.snapshot.savedAt : null);
   const [version, setVersion] = useState(recovery.snapshot.version);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -94,12 +100,14 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
     process.env.NEXT_PUBLIC_COLLABORATION_URL ? "connecting" : "local",
   );
   const [collaborationEnabled, setCollaborationEnabled] = useState(Boolean(process.env.NEXT_PUBLIC_COLLABORATION_URL));
-  const [saveStatus, setSaveStatus] = useState<"idle" | "waiting" | "saving" | "saved" | "local-only">(recovery.snapshot.version > 0 ? "saved" : "idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "empty" | "pending" | "waiting" | "saving" | "saved" | "local-only">(recovery.source === "default" ? "empty" : recovery.snapshot.version > 0 ? "saved" : "idle");
   const versionRef = useRef(recovery.snapshot.version);
   const serverVersionRef = useRef(recovery.serverVersion);
   const savingRef = useRef(false);
   const pendingSaveRef = useRef(false);
   const collaborationHydratedRef = useRef(false);
+  const unsavedDraftRef = useRef(recovery.source === "default");
+  const titleRef = useRef(initialTitle);
   const initialFingerprint = documentContentFingerprint(recovery.snapshot);
   const localFingerprintRef = useRef(initialFingerprint);
   const serverFingerprintRef = useRef<string | null>(recovery.source === "postgres" ? initialFingerprint : null);
@@ -131,6 +139,10 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
       while (pendingSaveRef.current) {
         pendingSaveRef.current = false;
         const projection = projectBlocks(editor.document);
+        if (unsavedDraftRef.current && isEmptyProjection(projection)) {
+          setSaveStatus("empty");
+          continue;
+        }
         const fingerprint = documentContentFingerprint({ blocks: editor.document, ...projection });
         const localChanged = fingerprint !== localFingerprintRef.current;
         const serverChanged = fingerprint !== serverFingerprintRef.current;
@@ -163,11 +175,11 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
           const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ ...localSnapshot, title: initialTitle, reason: "autosave" }),
+            body: JSON.stringify({ ...localSnapshot, title: titleRef.current, project: initialProject, reason: "autosave" }),
             keepalive: true,
           });
           if (!response.ok) throw new Error(`Document save failed: ${response.status}`);
-          const result = await response.json() as { version: number; updatedAt: string; changed: boolean };
+          const result = await response.json() as { version: number; updatedAt: string; changed: boolean; created: boolean };
           const persistedSnapshot = { ...localSnapshot, version: result.version, savedAt: result.updatedAt };
           window.localStorage.setItem(cacheKey(documentId), JSON.stringify(persistedSnapshot));
           serverVersionRef.current = result.version;
@@ -176,6 +188,10 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
           setVersion(result.version);
           setSavedAt(result.updatedAt);
           setSaveStatus("saved");
+          if (result.created) {
+            unsavedDraftRef.current = false;
+            window.dispatchEvent(new Event("seek:documents-changed"));
+          }
         } catch (error) {
           console.warn("PostgreSQL save failed; the local recovery copy is retained.", error);
           setSaveStatus("local-only");
@@ -184,7 +200,16 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
       }
       savingRef.current = false;
     })();
-  }, [documentId, editor, initialTitle, provider]);
+  }, [documentId, editor, initialProject, provider]);
+
+  useEffect(() => {
+    const onDraftTitleChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId: string; title: string }>).detail;
+      if (detail?.documentId === documentId) titleRef.current = detail.title;
+    };
+    window.addEventListener("seek:draft-title-changed", onDraftTitleChanged);
+    return () => window.removeEventListener("seek:draft-title-changed", onDraftTitleChanged);
+  }, [documentId]);
 
   useEffect(() => {
     if (!provider) {
@@ -229,6 +254,8 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
     const onChange = () => {
       if (!collaborationHydratedRef.current) return;
       if (timer) clearTimeout(timer);
+      const projection = projectBlocks(editor.document);
+      setSaveStatus(unsavedDraftRef.current && isEmptyProjection(projection) ? "empty" : "pending");
       timer = setTimeout(save, 5000);
     };
     const unsubscribe = editor.onChange(onChange);
@@ -285,8 +312,13 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
       : collaborationStatus === "connecting"
         ? "协作连接中"
         : "本地编辑模式";
+  const savedTime = formatSavedTime(savedAt);
   const saveLabel = saveStatus === "saved"
-    ? "已保存到 PostgreSQL"
+    ? `已保存${savedTime ? ` ${savedTime}` : ""}`
+    : saveStatus === "empty"
+      ? "空文档不会保存"
+    : saveStatus === "pending"
+      ? "等待保存"
     : saveStatus === "local-only"
       ? "已保存到本机，数据库待同步"
       : saveStatus === "waiting"
@@ -306,7 +338,6 @@ function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { r
       <BlockNoteView editor={editor} slashMenu={false} editable={collaborationStatus !== "connecting"}>
         <SuggestionMenuController
           triggerCharacter="/"
-          suggestionMenuComponent={SeekSlashMenu}
           getItems={async (query) => filterSuggestionItems(
             combineByGroup(getDefaultReactSlashMenuItems(editor), getMathSlashMenuItems(editor)),
             query,
