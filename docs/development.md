@@ -117,6 +117,9 @@ cp .env.example .env.local
 DATABASE_URL=postgresql://seek:seek_dev_password@127.0.0.1:5432/seek
 REDIS_URL=redis://127.0.0.1:6379
 
+COLLABORATION_PORT=1234
+NEXT_PUBLIC_COLLABORATION_URL=ws://127.0.0.1:1234
+
 STORAGE_DRIVER=local
 STORAGE_LOCAL_DIR=./.data/attachments
 
@@ -168,6 +171,8 @@ pnpm db:seed
 | `web` | Next.js 页面、REST API、认证、普通业务逻辑 |
 | `collaboration` | Hocuspocus WebSocket、Yjs 房间和协作状态持久化 |
 | `worker` | BullMQ 投影、快照、搜索索引、Embedding、导入导出 |
+
+当前代码仍使用完整的 `NEXT_PUBLIC_COLLABORATION_URL`。接下来的目标实现将改为当前页面 hostname 和独立的 `1234` 端口，以支持局域网内多台设备使用开发机 IP 联调。完整的网络约定、加载链路、状态机、持久化规则和多人验收步骤见 [实时协作开发与联调约定](./collaboration-development.md)。
 
 ## 7. 推荐开发顺序
 

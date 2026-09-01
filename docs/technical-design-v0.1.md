@@ -494,6 +494,8 @@ can(actor, "document:update", document)
 
 采用 Yjs + Hocuspocus：
 
+开发环境的网络地址解析、文档加载状态机、持久化约束、故障排查和多人验收流程见 [实时协作开发与联调约定](./collaboration-development.md)。
+
 - 每个 Document 对应一个协作房间；
 - WebSocket Token 短时有效，绑定用户和文档；
 - Hocuspocus `onAuthenticate` 验证读取或编辑权限；
