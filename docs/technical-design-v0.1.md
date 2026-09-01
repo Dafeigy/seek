@@ -302,7 +302,7 @@ flowchart LR
 实现要求：
 
 - 页面重命名时，链接语义不变；由稳定 ID 与内容投影自动更新 Markdown 展示文本；
-- 标题重复时，UI 必须在候选项中显示所属 Project/Space，导入时不得仅以标题静默绑定；
+- 标题重复时，UI 必须在候选项中显示所属 Project 和文档路径，导入时不得仅以标题静默绑定；
 - `[[目标#标题]]` 在内部解析为目标页面与 Heading Block ID，标题重命名后仍保持关联；
 - `[[目标|别名]]` 中的别名不随原页面改名而改变；
 - 通过后台投影维护 `document_links(from_document_id, to_document_id, heading_block_id, link_type)`；
@@ -396,14 +396,15 @@ BlockNote 在 Next.js 中作为 client-only 组件动态加载并关闭 SSR。
 ```text
 Workspace
 └── Project
-    └── Space / Document Tree
+    └── Document Tree
         └── Document
 ```
 
 - Workspace：成员、全局设置和数据隔离边界；
 - Project：实际的项目组织与主要授权边界；项目成员数不设硬上限；
-- Space：项目内的内容组织和默认权限边界；
-- Document：页面级例外授权。
+- Document：同时是内容单元和文档树节点，通过 `parent_document_id` 组成层级，并支持页面级例外授权。
+
+Phase 1 不引入 Space 或独立 Folder 概念。项目直接拥有一组根文档，每篇文档可继续拥有子文档。同一 Project 内通过 `sort_key` 维护根文档和同级子文档顺序。
 
 ### 7.2 角色
 
@@ -427,6 +428,7 @@ Workspace
 document:read
 document:comment
 document:update
+document:publish
 document:share
 document:move
 document:delete
@@ -439,8 +441,8 @@ document:history
 ```text
 最终权限 = 工作区成员资格
          ∩ 项目成员资格
-         ∩ Space 默认权限
-         ∩ Document ACL 例外
+         + 项目角色基础权限
+         + 父文档 / Document ACL 例外
          ∩ 文档状态限制
 ```
 
@@ -468,11 +470,13 @@ can(actor, "document:update", document)
 第一阶段建议：
 
 - Workspace Admin 默认可以读取所有项目和文档内容；
-- 页面默认继承所属 Space/父页面权限；
-- 页面级 ACL 可以收紧或扩大父级权限，并可针对指定成员、组进行例外授权；
+- 页面默认继承所属 Project 角色和父页面权限；
+- 页面级 ACL 可以收紧或扩大父级权限，但不能绕过 Workspace 成员资格；
+- 显式拒绝高于显式允许；Workspace Admin 始终可读，Workspace Owner 始终具有管理权限；
+- Phase 1 页面 ACL 先支持指定成员；组数据模型保留，组管理 UI 不作为 MVP 阻塞项；
 - 不提供跨 Workspace 或跨 Project 的“移动”作为默认操作；
 - 跨 Workspace/Project 使用“复制”或“导入”，产生新文档并按目标位置重新计算权限；
-- 同一 Project 内在 Space/页面树间移动时，必须展示目标权限预览；
+- 同一 Project 内在页面树间移动时，必须展示目标权限预览；
 - 复制到新位置时默认继承目标位置权限，不复制来源页面的例外 ACL；
 - 文档权限变化后立即使权限缓存失效；
 - 已连接的 WebSocket 客户端应在短时间内重新验证或断开；
@@ -502,6 +506,17 @@ can(actor, "document:update", document)
 - Awareness 只保存短期在线信息；
 - Redis 用于多实例广播，不作为持久化来源；
 - PostgreSQL 保存 Y.Doc 二进制。
+
+#### Block 编辑租约
+
+Phase 1 在 Yjs 实时合并之上增加 Block 级协作租约，避免两名用户在正常客户端中同时编辑同一 Block：
+
+- 光标进入可编辑 Block 时申请租约，服务端为同一 Document/Block 只授予一个持有者；
+- 其他客户端展示持有者并禁止对该 Block 的内容编辑、删除和移动；
+- 持有者编辑或显式续租时更新活动时间；连续 60 秒无编辑或续租则自动释放；
+- 持有者失焦、离开文档或 WebSocket 断开时尽快释放，服务端超时作为最终兜底；
+- 客户端收到租约丢失事件后立即结束该 Block 的编辑状态；
+- Yjs 仍是内容同步与异常合并机制，Block 租约不是持久化内容真源。
 
 ### 8.2 评论
 
@@ -533,31 +548,30 @@ updated_at
 
 ### 8.3 版本历史
 
-版本类型：
+自动保存只持久化实时草稿，不生成版本。只有用户执行“发布”时才生成不可变版本。
 
-- 自动快照；
-- 用户命名版本；
-- 恢复操作版本；
-- 导入版本。
+发布版本记录版本号、发布人、发布时间和可选发布说明。发布后当前文档继续作为实时草稿编辑，所有有读取权限的用户仍读取当前草稿；发布在 Phase 1 中是版本检查点，不是草稿/线上双视图工作流。
 
 版本数据：
 
 ```text
-page_id
+document_id
 version
 block_json
 markdown
-ydoc_state（重要版本可选）
-created_by
-reason
+plain_text
+ydoc_state
+published_by
+publish_note
+published_at
 created_at
 ```
 
-恢复旧版本时不删除后续历史，而是用旧内容创建新的当前版本。
+恢复旧版本时不删除后续历史，而是将选中版本的内容写入当前草稿。恢复操作本身不自动发布；用户确认后可再次发布为新版本。
 
 ## 9. 搜索
 
-### 9.1 第一阶段搜索架构
+### 9.1 Phase 2 搜索架构
 
 ```text
 标题与标签模糊搜索   pg_trgm
@@ -568,7 +582,7 @@ created_at
 最终权限校验         PermissionService
 ```
 
-第一阶段不引入 OpenSearch。
+搜索整体延后到 Phase 2，Phase 1 不提供标题、全文或语义搜索功能。Phase 2 不引入 OpenSearch。
 
 ### 9.2 搜索文档切片
 
@@ -589,7 +603,6 @@ Document
 ```text
 workspace_id
 project_id
-space_id
 document_id
 content_version
 heading_path
@@ -605,7 +618,7 @@ embedding
 
 ```text
 用户查询
-  → 计算可访问 Project/Space/Document 范围
+  → 计算可访问 Project/Document 范围
   → 在范围内执行全文/向量检索
   → 合并和排序
   → 对候选结果再次检查权限
@@ -777,7 +790,6 @@ projects
 project_members
 project_groups
 
-spaces
 documents
 document_permissions
 
@@ -851,7 +863,6 @@ BullMQ 任务：
 
 ```text
 document.project-content
-document.create-snapshot
 document.index
 document.embed
 document.import
@@ -970,7 +981,7 @@ services:
 使用权限矩阵覆盖：
 
 ```text
-角色 × 工作区 × 项目 × Space × 文档例外 × 操作
+角色 × 工作区 × 项目 × 父文档继承 × 文档例外 × 操作
 ```
 
 必须验证页面、搜索、AI、MCP、附件、评论和版本历史结果一致。
@@ -1007,18 +1018,19 @@ services:
 
 - 登录、邀请和工作区；
 - 项目和项目成员；
-- Space、文档树和拖拽；
+- 文档树和拖拽；
 - 基础 RBAC/ACL；
 - 实时协作；
 - 评论；
-- 自动版本和恢复；
+- 实时草稿、发布版本和恢复；
 - 附件；
-- 全文搜索；
 - Markdown 导入导出；
 - Docker Compose。
 
 ### Phase 2：AI 与语义搜索
 
+- 标题模糊搜索和 PGroonga 全文搜索；
+- 搜索权限预过滤、结果二次校验和结构化筛选；
 - OpenAI 兼容 Provider；
 - 页面总结、改写、翻译；
 - 当前页面问答；
@@ -1039,7 +1051,7 @@ services:
 
 Seek 的长期价值不只是存放文档，而是用团队问题推动知识持续演进。该阶段在当前权限、搜索、AI 和版本基础稳定后再考虑：
 
-- 问题收集箱：用户把未解决问题提交到具体 Project/Space；
+- 问题收集箱：用户把未解决问题提交到具体 Project 或 Document；
 - 问题与文档关联：标记现有文档已回答、部分回答或缺少知识；
 - 基于权限范围的相似问题与已有答案推荐；
 - AI 根据有权访问的资料生成“待验证回答草案”，且始终附带来源；
@@ -1074,6 +1086,7 @@ Seek 的长期价值不只是存放文档，而是用团队问题推动知识持
 |---|---|
 | Workspace Admin | 默认可读取所有项目和文档内容 |
 | Document ACL | 可收紧或扩大父级权限 |
+| 内容层级 | Workspace → Project → Document Tree；不引入 Space |
 | 跨项目/工作区内容迁移 | 不提供默认“移动”；使用复制或导入，目标文档重新计算权限 |
 | 页面级 ACL | 纳入 MVP |
 | 匿名公开分享 | 当前不考虑 |
@@ -1086,6 +1099,9 @@ Seek 的长期价值不只是存放文档，而是用团队问题推动知识持
 | 中文全文搜索 | PGroonga |
 | 存储 | 默认本地持久卷；S3 兼容存储可选；Compose 默认不附带对象存储 |
 | 自动保存 | 空闲 5 秒触发；持续编辑最长 120 秒强制尝试一次 |
+| 发布与版本 | 自动保存只保存实时草稿；只有手动发布才生成不可变版本 |
+| Block 编辑租约 | 同一 Block 同时仅一名持有者；连续 60 秒无活动自动释放 |
+| Phase 1 搜索 | 不实现，标题、全文和语义搜索统一移到 Phase 2 |
 | AI 权限失效 | 用户失去文档权限后不可查看涉及该文档的 AI 历史内容 |
 | MCP 写操作 | 需额外 Token，且由管理员进行 MCP 服务和 Tool 配置 |
 | 删除保留期 | Workspace、Project、Document、Attachment 软删除保留 30 天 |

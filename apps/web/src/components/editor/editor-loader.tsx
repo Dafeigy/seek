@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { DocumentBootstrap } from "@/lib/documents";
 
 const SeekEditor = dynamic(
   () => import("@/components/editor/seek-editor").then((module) => module.SeekEditor),
@@ -15,6 +16,6 @@ const SeekEditor = dynamic(
   },
 );
 
-export function EditorLoader(props: { documentId: string; initialTitle: string; initialProject: string }) {
+export function EditorLoader(props: { bootstrap: DocumentBootstrap }) {
   return <SeekEditor {...props} />;
 }

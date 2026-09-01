@@ -2,7 +2,7 @@
   "name": "@seek/web",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "../../scripts/with-dev-origins.sh next dev",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
@@ -10,8 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@blocknote/core": "^0.54.0",
     "@blocknote/code-block": "^0.54.0",
+    "@blocknote/core": "^0.54.0",
     "@blocknote/math-block": "^0.54.0",
     "@blocknote/react": "^0.54.0",
     "@blocknote/shadcn": "^0.54.0",
@@ -21,11 +21,12 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "nanoid": "^5.1.5",
-    "postgres": "^3.4.7",
     "next": "^16.0.0",
+    "postgres": "^3.4.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.3.1",
+    "y-indexeddb": "^9.0.12",
     "yjs": "^13.6.27"
   },
   "devDependencies": {

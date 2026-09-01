@@ -7,7 +7,7 @@ export async function GET() {
   const rows = await db`
     select id, title, project, updated_at, created_at
     from documents
-    where btrim(markdown) <> '' or btrim(plain_text) <> ''
+    where deleted_at is null
     order by updated_at desc, created_at desc
   `;
   return NextResponse.json(rows.map((document) => ({
@@ -46,5 +46,17 @@ export async function POST(request: Request) {
     }, { status: 201 });
   }
 
-  return NextResponse.json({ error: "Empty drafts are not persisted" }, { status: 422 });
+  const title = normalizeTitle(undefined);
+  const [document] = await db`
+    insert into documents (id, title, project)
+    values (${id}, ${title}, ${project})
+    returning id, title, project, updated_at, created_at
+  `;
+  return NextResponse.json({
+    id: document.id,
+    title: document.title,
+    project: document.project,
+    updatedAt: document.updated_at,
+    createdAt: document.created_at,
+  }, { status: 201 });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, History, Menu, MoreHorizontal, PanelLeftClose, Pencil, Share2, X } from "lucide-react";
 
 import { SidebarContent } from "@/components/knowledge-dashboard";
@@ -19,33 +19,10 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
-  const [project, setProject] = useState(initialProject);
+  const [project] = useState(initialProject);
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(initialTitle);
   const [titleStatus, setTitleStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-
-  const loadMetadata = useCallback(() => {
-    const controller = new AbortController();
-    void fetch(`/api/documents/${encodeURIComponent(documentId)}`, { signal: controller.signal })
-      .then(async (response) => response.ok ? response.json() as Promise<{ title: string; project: string }> : null)
-      .then((document) => {
-        if (!document) return;
-        setTitle(document.title);
-        setDraftTitle(document.title);
-        setProject(document.project);
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) console.warn("Document metadata load failed.", error);
-      });
-    return controller;
-  }, [documentId]);
-
-  useEffect(() => {
-    let controller = loadMetadata();
-    const refresh = () => { controller.abort(); controller = loadMetadata(); };
-    window.addEventListener("seek:documents-changed", refresh);
-    return () => { controller.abort(); window.removeEventListener("seek:documents-changed", refresh); };
-  }, [loadMetadata]);
 
   async function commitTitle() {
     const nextTitle = draftTitle.trim() || "未命名文档";

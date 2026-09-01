@@ -122,7 +122,8 @@ REDIS_URL=redis://127.0.0.1:6379
 
 COLLABORATION_PORT=1234
 NEXT_PUBLIC_COLLABORATION_PORT=1234
-NEXT_PUBLIC_SEEK_DEV_HOST=192.168.1.20
+# 可选：在自动探测的局域网 IP 之外追加域名或地址，使用逗号分隔
+SEEK_ALLOWED_DEV_ORIGINS=dev.seek.test,10.0.0.20
 
 STORAGE_DRIVER=local
 STORAGE_LOCAL_DIR=./.data/attachments
@@ -176,7 +177,7 @@ pnpm db:seed
 | `collaboration` | Hocuspocus WebSocket、Yjs 房间和协作状态持久化 |
 | `worker` | BullMQ 投影、快照、搜索索引、Embedding、导入导出 |
 
-`NEXT_PUBLIC_SEEK_DEV_HOST` 必须填写开发机当前的局域网 IPv4 地址，Next.js 使用它精确放行该地址下的开发 chunk/HMR；`127.0.0.1` 和 `::1` 会独立放行。协作客户端默认使用页面当前 hostname 加 `NEXT_PUBLIC_COLLABORATION_PORT`，所以 localhost、`127.0.0.1` 和局域网 IP 三种入口各自连接同名主机的 1234 端口。网络变化导致开发机 IP 改变时，需要更新 `NEXT_PUBLIC_SEEK_DEV_HOST` 并重启 `pnpm dev`。仍可使用 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖协作地址。完整的网络约定、加载链路、状态机、持久化规则和多人验收步骤见 [实时协作开发与联调约定](./collaboration-development.md)。
+Web 开发进程启动前会运行 `scripts/with-dev-origins.sh`，通过 Arch Linux 的 `ip` 命令探测已启用网卡的 IPv4 地址，并精确注入 Next.js 的 `allowedDevOrigins`；Docker、Podman、CNI 等常见虚拟网桥会被忽略。`127.0.0.1` 和 `::1` 始终独立放行。切换家庭或办公室网络后只需重启 `pnpm dev`，无需修改配置。需要额外放行本地域名、VPN 地址或未探测到的 IP 时，可用逗号或空格分隔的 `SEEK_ALLOWED_DEV_ORIGINS` 追加；旧的 `NEXT_PUBLIC_SEEK_DEV_HOST` 仍保持兼容。协作客户端默认使用页面当前 hostname 加 `NEXT_PUBLIC_COLLABORATION_PORT`，也可使用 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖。完整约定见 [实时协作开发与联调约定](./collaboration-development.md)。
 
 ## 7. 推荐开发顺序
 
@@ -191,7 +192,7 @@ pnpm db:seed
 7. Viewer 权限和 WebSocket 写入拦截；
 8. Markdown 往返测试语料库。
 
-业务 MVP 再加入认证、工作区、项目、Space、ACL、评论、附件和全文搜索。AI、pgvector 语义搜索、MCP 和 Excalidraw 按后续阶段加入。
+业务 MVP 再加入认证、工作区、项目、文档树、ACL、评论、附件和发布版本。标题/全文/语义搜索、AI、MCP 和 Excalidraw 按后续阶段加入。
 
 ## 8. 本地数据与安全边界
 

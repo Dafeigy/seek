@@ -18,8 +18,19 @@ await sql`
     id text primary key, title text not null, project text not null default '未分类',
     ydoc_state bytea, block_json jsonb not null default '[]'::jsonb,
     markdown text not null default '', plain_text text not null default '',
-    content_version integer not null default 0, updated_at timestamptz not null default now(), created_at timestamptz not null default now()
+    content_version integer not null default 0,
+    ydoc_initialized_at timestamptz, projected_at timestamptz,
+    deleted_at timestamptz,
+    updated_at timestamptz not null default now(), created_at timestamptz not null default now()
   )
+`;
+await sql`alter table documents add column if not exists ydoc_initialized_at timestamptz`;
+await sql`alter table documents add column if not exists projected_at timestamptz`;
+await sql`alter table documents add column if not exists deleted_at timestamptz`;
+await sql`
+  update documents
+  set ydoc_initialized_at = coalesce(ydoc_initialized_at, updated_at)
+  where ydoc_state is not null and ydoc_initialized_at is null
 `;
 await sql`
   insert into projects (name)

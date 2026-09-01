@@ -53,7 +53,8 @@ Seek 使用 BlockNote + Yjs + Hocuspocus 实现实时协作。开发阶段必须
 ```env
 COLLABORATION_PORT=1234
 NEXT_PUBLIC_COLLABORATION_PORT=1234
-NEXT_PUBLIC_SEEK_DEV_HOST=192.168.1.20
+# 可选：在自动探测的局域网 IP 之外追加域名或地址，使用逗号分隔
+SEEK_ALLOWED_DEV_ORIGINS=dev.seek.test,10.0.0.20
 ```
 
 前端不应在开发环境依赖如下固定地址：
@@ -87,7 +88,7 @@ export function getDevelopmentCollaborationUrl(): string {
 
 当前代码优先支持上述端口配置和运行时解析，同时保留 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖能力。为了兼容旧的 loopback 配置，仅当页面通过局域网 IP 打开时，前端才把显式 URL 中的 `localhost`、`127.0.0.1`、`::1` 或 `0.0.0.0` 替换为当前页面主机。页面从 localhost 或 `127.0.0.1` 打开时保留各自的 loopback 地址，避免依赖可能已经变化的局域网 IP。显式配置的非 loopback 协作主机保持不变。
 
-Next.js 始终将 `127.0.0.1`、`::1` 加入开发源白名单，并将 `NEXT_PUBLIC_SEEK_DEV_HOST` 精确加入 `allowedDevOrigins`。如果开发服务器仍提示跨源开发资源被阻止，先确认浏览器地址与该变量一致，然后重启 Next.js。只允许明确的开发地址，不配置无约束通配符。
+Next.js 始终将 `127.0.0.1`、`::1` 加入开发源白名单。运行 `pnpm dev` 时，Web 进程会通过 `scripts/with-dev-origins.sh` 自动探测当前开发机已启用网卡的 IPv4 地址，并精确加入 `allowedDevOrigins`；切换网络后重启即可。额外域名或地址可通过 `SEEK_ALLOWED_DEV_ORIGINS` 追加，旧的 `NEXT_PUBLIC_SEEK_DEV_HOST` 仍保持兼容。只允许明确的开发地址，不配置无约束通配符。
 
 ## 4. 文档打开的目标链路
 
@@ -331,7 +332,7 @@ ws://<开发机-IP>:1234
 | 内容实时同步但 `ydoc_state` 为 NULL | `onStoreDocument` 未触发或写入失败 |
 | 首次协作出现重复内容 | 多个客户端同时把 Block JSON 初始化到空 Y.Doc |
 | 页面标题存在但协作内容为空 | metadata/Block JSON 与 Y.Doc 尚未迁移或不同步 |
-| 使用 IP 时 Next.js chunk/HMR 被阻止 | 将该 IP 写入 `NEXT_PUBLIC_SEEK_DEV_HOST` 并重启 Next.js |
+| 使用 IP 时 Next.js chunk/HMR 被阻止 | 重启 `pnpm dev` 触发地址探测；仍未识别时将地址加入 `SEEK_ALLOWED_DEV_ORIGINS` |
 | 服务端显示已连接/已认证，开发页面仍持续重试 | 检查 Provider 是否被 React 开发模式的 effect cleanup 提前销毁 |
 | IP 下新建文档报 Web Crypto API 不可用 | 检查客户端是否使用 `crypto.randomUUID`/`crypto.subtle`；普通 ID 使用兼容 HTTP IP 的生成器 |
 | 页面是 HTTPS、协作使用 ws:// | 浏览器 mixed-content 拒绝；生产必须改用 wss:// |

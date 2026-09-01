@@ -18,6 +18,17 @@ export type DocumentSummary = {
   createdAt: string;
 };
 
+export type DocumentBootstrap = {
+  id: string;
+  title: string;
+  project: string;
+  blockJson: unknown[];
+  markdown: string;
+  plainText: string;
+  contentVersion: number;
+  updatedAt: string;
+};
+
 export function normalizeTitle(value: unknown, fallback = "未命名文档") {
   if (typeof value !== "string") return fallback;
   const title = value.trim().replace(/\s+/g, " ").slice(0, 120);

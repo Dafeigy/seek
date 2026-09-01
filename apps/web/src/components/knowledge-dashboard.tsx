@@ -13,7 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SeekCompanion } from "@/components/seek-companion";
+import { collaborationCacheName } from "@/lib/collaboration-cache";
 import { DEFAULT_PROJECT, PRIVATE_PROJECTS, TEAM_PROJECTS, type DocumentSummary, type ProjectSummary } from "@/lib/documents";
+import { clearDocument } from "y-indexeddb";
 
 function useDocuments() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -197,7 +199,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
   async function deleteDocument(document: DocumentSummary) {
     const response = await fetch(`/api/documents/${encodeURIComponent(document.id)}`, { method: "DELETE" });
     if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
-    window.localStorage.removeItem(`seek:document:${document.id}`);
+    void clearDocument(collaborationCacheName(document.id));
     setOperationStatus(`已删除“${document.title}”`);
     reload();
     window.dispatchEvent(new Event("seek:documents-changed"));
