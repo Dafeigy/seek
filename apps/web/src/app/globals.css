@@ -58,6 +58,57 @@ body {
   height: 15px;
 }
 
+.seek-editor .bn-formatting-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(680px, calc(100vw - 32px));
+  border: 1px solid rgb(226 232 240 / 95%);
+  border-radius: 11px;
+  background: rgb(255 255 255 / 98%);
+  padding: 4px;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 13%), 0 2px 6px rgb(15 23 42 / 7%);
+  color: #475569;
+  backdrop-filter: blur(12px);
+}
+
+.seek-editor .bn-formatting-toolbar button {
+  min-width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 7px;
+  color: #64748b;
+  box-shadow: none;
+}
+
+.seek-editor .bn-formatting-toolbar button:hover,
+.seek-editor .bn-formatting-toolbar button[aria-pressed="true"],
+.seek-editor .bn-formatting-toolbar button[data-state="open"],
+.seek-editor .bn-formatting-toolbar button[data-selected] {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.seek-editor .bn-formatting-toolbar button:focus-visible {
+  outline: 2px solid #99f6e4;
+  outline-offset: 1px;
+}
+
+.seek-editor .bn-formatting-toolbar svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+.seek-editor .bn-formatting-toolbar [role="separator"] {
+  width: 1px;
+  height: 20px;
+  margin-inline: 3px;
+  background: #e2e8f0;
+}
+
 .seek-editor [data-content-type="codeBlock"] {
   margin-block: 10px;
   border: 1px solid #e2e8f0;

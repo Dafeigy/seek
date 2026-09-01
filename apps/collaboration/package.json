@@ -2,7 +2,7 @@
   "name": "@seek/collaboration",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/server.ts", "build": "tsc --noEmit", "typecheck": "tsc --noEmit" },
+  "scripts": { "dev": "tsx watch --env-file=../../.env.local src/server.ts", "build": "tsc --noEmit", "typecheck": "tsc --noEmit" },
   "dependencies": { "@hocuspocus/server": "^3.4.0", "postgres": "^3.4.7", "yjs": "^13.6.27" },
   "devDependencies": { "@types/node": "^24.3.0", "tsx": "^4.20.3", "typescript": "^5.9.2" }
 }

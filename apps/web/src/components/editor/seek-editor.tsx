@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import { BlockNoteSchema, combineByGroup } from "@blocknote/core";
 import { filterSuggestionItems } from "@blocknote/core/extensions";
@@ -22,6 +22,15 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { Check, CloudOff, History, Wifi } from "lucide-react";
 import { projectBlocks } from "@/lib/projection";
+import {
+  createDefaultSnapshot,
+  documentContentFingerprint,
+  parseLocalSnapshot,
+  parseServerSnapshot,
+  reconcileDocument,
+  type DocumentSnapshot,
+  type RecoveryResult,
+} from "@/lib/document-recovery";
 import { SeekSlashMenu } from "@/components/editor/seek-slash-menu";
 import * as Y from "yjs";
 
@@ -38,78 +47,263 @@ function blockText(content: unknown): string {
   return content.map((part) => typeof part === "object" && part !== null && "text" in part ? String(part.text) : "").join("");
 }
 
+const cacheKey = (documentId: string) => `seek:document:${documentId}`;
+
 export function SeekEditor({ documentId, initialTitle }: Props) {
-  const [savedAt, setSavedAt] = useState<string | null>(null);
-  const [version, setVersion] = useState(1);
-  const [online, setOnline] = useState(true);
+  const [recovery, setRecovery] = useState<RecoveryResult | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const fallback = createDefaultSnapshot(initialTitle);
+    const local = parseLocalSnapshot(window.localStorage.getItem(cacheKey(documentId)));
+
+    void fetch(`/api/documents/${encodeURIComponent(documentId)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error(`Document load failed: ${response.status}`);
+        return parseServerSnapshot(await response.json());
+      })
+      .then((postgres) => {
+        const result = reconcileDocument(fallback, local, postgres);
+        if (result.source === "postgres") {
+          window.localStorage.setItem(cacheKey(documentId), JSON.stringify(result.snapshot));
+        }
+        setRecovery(result);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn("PostgreSQL document recovery failed; using local recovery data.", error);
+        setRecovery(reconcileDocument(fallback, local, null));
+      });
+
+    return () => controller.abort();
+  }, [documentId, initialTitle]);
+
+  if (!recovery) {
+    return <div className="h-[680px] animate-pulse rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-400">正在对比本地缓存与 PostgreSQL…</div>;
+  }
+
+  return <RecoveredSeekEditor documentId={documentId} initialTitle={initialTitle} recovery={recovery} />;
+}
+
+function RecoveredSeekEditor({ documentId, initialTitle, recovery }: Props & { recovery: RecoveryResult }) {
+  const [savedAt, setSavedAt] = useState<string | null>(recovery.snapshot.version > 0 ? recovery.snapshot.savedAt : null);
+  const [version, setVersion] = useState(recovery.snapshot.version);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [collaborationStatus, setCollaborationStatus] = useState<"local" | "connecting" | "connected">(
+    process.env.NEXT_PUBLIC_COLLABORATION_URL ? "connecting" : "local",
+  );
+  const [collaborationEnabled, setCollaborationEnabled] = useState(Boolean(process.env.NEXT_PUBLIC_COLLABORATION_URL));
+  const [saveStatus, setSaveStatus] = useState<"idle" | "waiting" | "saving" | "saved" | "local-only">(recovery.snapshot.version > 0 ? "saved" : "idle");
+  const versionRef = useRef(recovery.snapshot.version);
+  const serverVersionRef = useRef(recovery.serverVersion);
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const collaborationHydratedRef = useRef(false);
+  const initialFingerprint = documentContentFingerprint(recovery.snapshot);
+  const localFingerprintRef = useRef(initialFingerprint);
+  const serverFingerprintRef = useRef<string | null>(recovery.source === "postgres" ? initialFingerprint : null);
   const provider = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_COLLABORATION_URL;
-    if (!url) return null;
+    if (!url || !collaborationEnabled) return null;
     return new HocuspocusProvider({ url, name: documentId, document: new Y.Doc(), token: "demo-editor" });
-  }, [documentId]);
+  }, [collaborationEnabled, documentId]);
   const editor = useCreateBlockNote({
     schema: seekSchema,
     extensions: [syntaxHighlighter],
     dictionary: { ...zh, math: mathLocales.zh },
-    initialContent: [
-      { type: "heading", props: { level: 1 }, content: initialTitle },
-      { type: "paragraph", content: "开始记录团队知识。支持 Markdown 风格快捷输入、代码块、公式和 Mermaid。" },
-      { type: "paragraph", content: "输入 / 打开块菜单，输入 $$ 创建数学公式，输入 ```mermaid 创建技术图表。" },
-    ],
-    ...(provider ? { collaboration: { provider, fragment: provider.document.getXmlFragment("document-store"), user: { name: "你", color: "#0f766e" } } } : {}),
+    ...(provider
+      ? { collaboration: { provider, fragment: provider.document.getXmlFragment("document-store"), user: { name: "你", color: "#0f766e" } } }
+      : { initialContent: recovery.snapshot.blocks as never }),
   }, [provider]);
 
-  const save = useMemo(() => () => {
-    const projection = projectBlocks(editor.document);
-    const payload = { blocks: editor.document, ...projection, version: version + 1, savedAt: new Date().toISOString() };
-    window.localStorage.setItem(`seek:document:${documentId}`, JSON.stringify(payload));
-    setVersion((current) => current + 1);
-    setSavedAt(payload.savedAt);
-  }, [documentId, editor, version]);
+  const save = useCallback(() => {
+    if (provider && !collaborationHydratedRef.current) {
+      pendingSaveRef.current = true;
+      setSaveStatus("waiting");
+      return;
+    }
+    pendingSaveRef.current = true;
+    if (savingRef.current) return;
+    savingRef.current = true;
 
-  const handleMarkdownShortcut = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const currentBlock = editor.getTextCursorPosition().block;
-    if (currentBlock.type !== "paragraph") return;
+    void (async () => {
+      while (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        const projection = projectBlocks(editor.document);
+        const fingerprint = documentContentFingerprint({ blocks: editor.document, ...projection });
+        const localChanged = fingerprint !== localFingerprintRef.current;
+        const serverChanged = fingerprint !== serverFingerprintRef.current;
+        if (!localChanged && !serverChanged) {
+          setSaveStatus("saved");
+          continue;
+        }
 
-    const text = blockText(currentBlock.content).trim();
-    if (text === "$$") {
-      event.preventDefault();
-      editor.updateBlock(currentBlock, { type: "mathBlock", content: "" });
+        const optimisticVersion = Math.max(versionRef.current, serverVersionRef.current) + 1;
+        const localSnapshot: DocumentSnapshot = {
+          blocks: editor.document,
+          ...projection,
+          version: optimisticVersion,
+          savedAt: new Date().toISOString(),
+        };
+
+        window.localStorage.setItem(cacheKey(documentId), JSON.stringify(localSnapshot));
+        localFingerprintRef.current = fingerprint;
+        versionRef.current = optimisticVersion;
+        setVersion(optimisticVersion);
+        setSavedAt(localSnapshot.savedAt);
+        setSaveStatus("saving");
+
+        if (!serverChanged) {
+          setSaveStatus("saved");
+          continue;
+        }
+
+        try {
+          const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ ...localSnapshot, title: initialTitle, reason: "autosave" }),
+            keepalive: true,
+          });
+          if (!response.ok) throw new Error(`Document save failed: ${response.status}`);
+          const result = await response.json() as { version: number; updatedAt: string; changed: boolean };
+          const persistedSnapshot = { ...localSnapshot, version: result.version, savedAt: result.updatedAt };
+          window.localStorage.setItem(cacheKey(documentId), JSON.stringify(persistedSnapshot));
+          serverVersionRef.current = result.version;
+          serverFingerprintRef.current = fingerprint;
+          versionRef.current = result.version;
+          setVersion(result.version);
+          setSavedAt(result.updatedAt);
+          setSaveStatus("saved");
+        } catch (error) {
+          console.warn("PostgreSQL save failed; the local recovery copy is retained.", error);
+          setSaveStatus("local-only");
+          break;
+        }
+      }
+      savingRef.current = false;
+    })();
+  }, [documentId, editor, initialTitle, provider]);
+
+  useEffect(() => {
+    if (!provider) {
+      collaborationHydratedRef.current = true;
+      if (pendingSaveRef.current) queueMicrotask(save);
       return;
     }
 
-    const codeFence = text.match(/^```([\w#+.-]*)$/);
-    if (codeFence) {
-      event.preventDefault();
-      editor.updateBlock(currentBlock, {
-        type: "codeBlock",
-        props: { language: codeFence[1] || "text" },
-        content: "",
-      });
-    }
-  };
+    const fallbackTimer = window.setTimeout(() => {
+      if (collaborationHydratedRef.current) return;
+      setCollaborationStatus("local");
+      setCollaborationEnabled(false);
+    }, 5_000);
+    const onStatus = ({ status }: { status: string }) => {
+      setCollaborationStatus(status === "connected" ? "connected" : "connecting");
+    };
+    const onSynced = ({ state }: { state: boolean }) => {
+      if (!state || collaborationHydratedRef.current) return;
+      const fragment = provider.document.getXmlFragment("document-store");
+      collaborationHydratedRef.current = true;
+      if (fragment.length === 0 || recovery.shouldRestoreToCollaboration) {
+        editor.replaceBlocks(editor.document, recovery.snapshot.blocks as never);
+      }
+      setCollaborationStatus("connected");
+    };
+
+    provider.on("status", onStatus);
+    provider.on("synced", onSynced);
+    if (provider.synced) onSynced({ state: true });
+
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      provider.off("status", onStatus);
+      provider.off("synced", onSynced);
+    };
+  }, [editor, provider, recovery, save]);
+
+  useEffect(() => () => provider?.destroy(), [provider]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onChange = () => {
+      if (!collaborationHydratedRef.current) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(save, 5000);
     };
     const unsubscribe = editor.onChange(onChange);
     const onOnline = () => setOnline(navigator.onLine);
+    const onPageHide = () => save();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!editor.domElement?.contains(event.target as Node)) return;
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        save();
+        return;
+      }
+
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const currentBlock = editor.getTextCursorPosition().block;
+      if (currentBlock.type !== "paragraph") return;
+
+      const text = blockText(currentBlock.content).trim();
+      const codeFence = text.match(/^```([\w#+.-]*)$/);
+      if (text !== "$$" && !codeFence) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const replacement = text === "$$"
+        ? { type: "mathBlock" as const, content: "" }
+        : {
+            type: "codeBlock" as const,
+            props: { language: codeFence?.[1] || "text" },
+            content: "",
+          };
+      const { insertedBlocks } = editor.replaceBlocks([currentBlock], [replacement]);
+      if (insertedBlocks[0]) editor.setTextCursorPosition(insertedBlocks[0], "start");
+    };
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOnline);
-    return () => { if (timer) clearTimeout(timer); unsubscribe(); provider?.destroy(); window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOnline); };
-  }, [editor, provider, save]);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOnline);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [editor, save]);
+
+  const collaborationLabel = !online
+    ? "离线编辑，恢复连接后同步"
+    : collaborationStatus === "connected"
+      ? "协作已连接"
+      : collaborationStatus === "connecting"
+        ? "协作连接中"
+        : "本地编辑模式";
+  const saveLabel = saveStatus === "saved"
+    ? "已保存到 PostgreSQL"
+    : saveStatus === "local-only"
+      ? "已保存到本机，数据库待同步"
+      : saveStatus === "waiting"
+        ? "等待协作同步后保存"
+      : saveStatus === "saving"
+        ? "正在保存"
+        : savedAt
+          ? "已恢复"
+          : "等待编辑";
 
   return <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
     <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
-      <span className="flex items-center gap-2">{online ? <Wifi size={14} className="text-emerald-600" /> : <CloudOff size={14} className="text-amber-600" />} {online ? "协作已连接" : "离线编辑，恢复连接后同步"}</span>
-      <span className="flex items-center gap-3"><span className="flex items-center gap-1">{savedAt ? <Check size={14} className="text-emerald-600" /> : <History size={14} />} {savedAt ? "已保存" : "自动保存中"}</span><span>v{version}</span></span>
+      <span className="flex items-center gap-2">{online && collaborationStatus === "connected" ? <Wifi size={14} className="text-emerald-600" /> : <CloudOff size={14} className="text-amber-600" />} {collaborationLabel}</span>
+      <span className="flex items-center gap-3"><span className="flex items-center gap-1">{saveStatus === "saved" ? <Check size={14} className="text-emerald-600" /> : <History size={14} />} {saveLabel}</span><span>v{version}</span></span>
     </div>
     <div className="seek-editor min-h-[620px] px-3 py-5 sm:px-12">
-      <BlockNoteView editor={editor} slashMenu={false} onKeyDownCapture={handleMarkdownShortcut}>
+      <BlockNoteView editor={editor} slashMenu={false} editable={collaborationStatus !== "connecting"}>
         <SuggestionMenuController
           triggerCharacter="/"
           suggestionMenuComponent={SeekSlashMenu}

@@ -11,6 +11,16 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   await db.begin(async (tx) => {
     await tx`update documents set block_json = ${tx.json(source.block_json)}, markdown = ${source.markdown}, plain_text = ${plainText}, content_version = ${nextVersion}, updated_at = now() where id = ${id}`;
     await tx`insert into document_versions (document_id, version, block_json, markdown, reason) values (${id}, ${nextVersion}, ${tx.json(source.block_json)}, ${source.markdown}, ${"restore:" + version})`;
+    await tx`
+      delete from document_versions
+      where document_id = ${id}
+        and id not in (
+          select id from document_versions
+          where document_id = ${id}
+          order by version desc, id desc
+          limit 20
+        )
+    `;
   });
   return NextResponse.json({ version: nextVersion, restoredFrom: Number(version) });
 }
