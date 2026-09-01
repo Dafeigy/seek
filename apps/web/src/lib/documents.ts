@@ -1,3 +1,5 @@
+import { nanoid } from "nanoid/non-secure";
+
 export const TEAM_PROJECTS = ["平台基础设施", "算法研究", "客户端"] as const;
 export const PRIVATE_PROJECTS = ["个人工作台"] as const;
 
@@ -29,5 +31,7 @@ export function normalizeProject(value: unknown, fallback: string = DEFAULT_PROJ
 }
 
 export function createDocumentId() {
-  return `document-${crypto.randomUUID()}`;
+  // Document IDs are identifiers, not credentials. The non-secure generator also
+  // works when the development site is opened over HTTP through a LAN IP.
+  return `document-${nanoid()}`;
 }

@@ -19,6 +19,8 @@ Seek 使用 BlockNote + Yjs + Hocuspocus 实现实时协作。开发阶段必须
 
 局域网 HTTP 和 WebSocket 都是明文传输，只适用于受信、隔离的开发网络。不得把开发端口直接暴露到公网。
 
+浏览器只把 localhost 视为 HTTP 下的特殊可信环境，普通局域网 IP 不属于 secure context。客户端功能不得依赖仅在 secure context 可用的 API；普通业务 ID 使用不依赖 Web Crypto 的生成器，真正的 token、密钥和安全随机数必须在服务端生成。
+
 ## 2. 开发环境拓扑
 
 ```text
@@ -51,6 +53,7 @@ Seek 使用 BlockNote + Yjs + Hocuspocus 实现实时协作。开发阶段必须
 ```env
 COLLABORATION_PORT=1234
 NEXT_PUBLIC_COLLABORATION_PORT=1234
+NEXT_PUBLIC_SEEK_DEV_HOST=192.168.1.20
 ```
 
 前端不应在开发环境依赖如下固定地址：
@@ -82,9 +85,9 @@ export function getDevelopmentCollaborationUrl(): string {
 | `http://127.0.0.1:3000` | `ws://127.0.0.1:1234/` |
 | `http://192.168.1.20:3000` | `ws://192.168.1.20:1234/` |
 
-当前代码仍使用 `NEXT_PUBLIC_COLLABORATION_URL`，上述端口配置和运行时解析是待实施目标。迁移完成前，多设备联调需要手工把 URL 改成开发机 IP 并重启 Next.js；环境变量变更不会自动更新已经生成的客户端 bundle。
+当前代码优先支持上述端口配置和运行时解析，同时保留 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖能力。为了兼容旧的 loopback 配置，仅当页面通过局域网 IP 打开时，前端才把显式 URL 中的 `localhost`、`127.0.0.1`、`::1` 或 `0.0.0.0` 替换为当前页面主机。页面从 localhost 或 `127.0.0.1` 打开时保留各自的 loopback 地址，避免依赖可能已经变化的局域网 IP。显式配置的非 loopback 协作主机保持不变。
 
-如果 Next.js 开发服务器提示跨源开发资源被阻止，应将实际使用的局域网 hostname/IP 加入 `allowedDevOrigins`。只允许明确的开发地址，不配置无约束通配符。
+Next.js 始终将 `127.0.0.1`、`::1` 加入开发源白名单，并将 `NEXT_PUBLIC_SEEK_DEV_HOST` 精确加入 `allowedDevOrigins`。如果开发服务器仍提示跨源开发资源被阻止，先确认浏览器地址与该变量一致，然后重启 Next.js。只允许明确的开发地址，不配置无约束通配符。
 
 ## 4. 文档打开的目标链路
 
@@ -118,6 +121,8 @@ export function getDevelopmentCollaborationUrl(): string {
 ### 4.3 连接和同步
 
 Provider 必须在事件监听器注册完成后再开始连接，或者在注册后检查当前同步状态，避免丢失快速完成的事件。
+
+Provider 的销毁还必须兼容 React 开发模式的 effect setup/cleanup 重放。不能在第一次开发检查的 cleanup 中同步永久销毁一个随后会被复用的 Provider；当前实现延迟到下一个 macrotask 销毁，并在同一 Provider 立即重新 setup 时取消销毁。真正离开文档或切换 Provider 时仍会完成清理。
 
 建议的状态机：
 
@@ -318,7 +323,7 @@ ws://<开发机-IP>:1234
 
 | 现象 | 优先检查 |
 |---|---|
-| 固定约 5 秒后进入本地模式 | 前端超时降级；检查实际 WebSocket URL、1234 可达性和 collaboration 日志 |
+| 约 5 秒后显示“协作连接失败，正在重试” | 检查实际 WebSocket URL、1234 可达性和 collaboration 日志；Provider 会继续重试 |
 | 开发机自己正常，其他设备失败 | 前端是否仍使用 localhost；防火墙；服务是否监听 0.0.0.0；路由器客户端隔离 |
 | WebSocket 一直 pending | Hocuspocus 未启动、端口错误、Upgrade 被代理拦截或网络不可达 |
 | WebSocket open 但不 synced | authenticate、onLoadDocument、PG 查询错误；检查分段日志 |
@@ -326,33 +331,30 @@ ws://<开发机-IP>:1234
 | 内容实时同步但 `ydoc_state` 为 NULL | `onStoreDocument` 未触发或写入失败 |
 | 首次协作出现重复内容 | 多个客户端同时把 Block JSON 初始化到空 Y.Doc |
 | 页面标题存在但协作内容为空 | metadata/Block JSON 与 Y.Doc 尚未迁移或不同步 |
-| 使用 IP 时 Next.js chunk/HMR 被阻止 | 配置精确的 `allowedDevOrigins` 并重启 Next.js |
+| 使用 IP 时 Next.js chunk/HMR 被阻止 | 将该 IP 写入 `NEXT_PUBLIC_SEEK_DEV_HOST` 并重启 Next.js |
+| 服务端显示已连接/已认证，开发页面仍持续重试 | 检查 Provider 是否被 React 开发模式的 effect cleanup 提前销毁 |
+| IP 下新建文档报 Web Crypto API 不可用 | 检查客户端是否使用 `crypto.randomUUID`/`crypto.subtle`；普通 ID 使用兼容 HTTP IP 的生成器 |
 | 页面是 HTTPS、协作使用 ws:// | 浏览器 mixed-content 拒绝；生产必须改用 wss:// |
 
 ## 10. 当前实现差距与实施顺序
 
 当前实现已具备 BlockNote、Hocuspocus Provider、Y.Doc、PostgreSQL `ydoc_state` 加载和 debounce 持久化，但仍有以下差距：
 
-1. `NEXT_PUBLIC_COLLABORATION_URL` 写死 hostname；
-2. 页面头部和编辑器重复加载文档；
-3. 本地缓存使用 localStorage 快照，而不是 Yjs IndexedDB updates；
-4. 首次 `synced` 前编辑器被锁定；
-5. 5 秒未同步会永久销毁 Provider，不会自动恢复；
-6. 所有非 connected 状态都被显示成“协作连接中”；
-7. `onLoadDocument` 会为任意房间名创建业务文档；
-8. `block_json` 和 `ydoc_state` 是两条独立写入链路，缺少统一迁移和版本语义；
-9. 缺少连接、认证、加载、同步和存储的分段日志；
-10. 缺少局域网双设备、断线重连和服务重启的自动化验收。
+1. 页面头部和编辑器重复加载文档；
+2. 本地缓存使用 localStorage 快照，而不是 Yjs IndexedDB updates；
+3. 首次 `synced` 前编辑器被锁定；
+4. `onLoadDocument` 会为任意房间名创建业务文档；
+5. `block_json` 和 `ydoc_state` 是两条独立写入链路，缺少统一迁移和版本语义；
+6. 缺少连接、认证、加载、同步和存储的分段日志；
+7. 缺少局域网双设备、断线重连和服务重启的自动化验收。
 
 推荐实施顺序：
 
-1. 改为当前页面 hostname + collaboration port，先打通局域网双设备连接；
-2. 补齐连接状态、错误信息、重试和分段耗时；
-3. 移除 `onLoadDocument` 的隐式文档创建；
-4. 合并文档 bootstrap 请求；
-5. 引入单一 Y.Doc 生命周期和 IndexedDB 本地持久化；
-6. 设计并执行已有 Block JSON 到 Y.Doc 的幂等迁移；
-7. 收敛投影、版本和持久化语义；
-8. 补齐验收矩阵和自动化测试；
-9. 接入 RBAC/ACL 后替换 demo token，并验证 Viewer 无法提交更新。
-
+1. 补齐连接分段耗时和服务端结构化日志；
+2. 移除 `onLoadDocument` 的隐式文档创建；
+3. 合并文档 bootstrap 请求；
+4. 引入单一 Y.Doc 生命周期和 IndexedDB 本地持久化；
+5. 设计并执行已有 Block JSON 到 Y.Doc 的幂等迁移；
+6. 收敛投影、版本和持久化语义；
+7. 补齐验收矩阵和自动化测试；
+8. 接入 RBAC/ACL 后替换 demo token，并验证 Viewer 无法提交更新。

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_PROJECT, normalizeProject, normalizeTitle } from "./documents";
+import { createDocumentId, DEFAULT_PROJECT, normalizeProject, normalizeTitle } from "./documents";
 
 describe("document metadata", () => {
   it("normalizes document titles and falls back for blank input", () => {
@@ -13,5 +13,13 @@ describe("document metadata", () => {
     expect(normalizeProject("  新的   项目  ")).toBe("新的 项目");
     expect(normalizeProject("   ")).toBe(DEFAULT_PROJECT);
     expect(normalizeProject(null, "客户端")).toBe("客户端");
+  });
+
+  it("creates unique document IDs without requiring the Web Crypto API", () => {
+    const first = createDocumentId();
+    const second = createDocumentId();
+
+    expect(first).toMatch(/^document-[A-Za-z0-9_-]{21}$/);
+    expect(second).not.toBe(first);
   });
 });

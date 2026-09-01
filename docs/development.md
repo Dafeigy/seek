@@ -109,7 +109,10 @@ docker compose -f docker-compose.dev.yml down -v
 
 ```bash
 cp .env.example .env.local
+cp .env.example apps/web/.env.local
 ```
+
+collaboration、数据库脚本和其他宿主机进程读取仓库根目录的 `.env.local`；Next.js 以 `apps/web` 为工作目录，因此读取 `apps/web/.env.local`。两份文件中的数据库地址和 `NEXT_PUBLIC_*` 开发配置必须保持一致。修改后需要重启 `pnpm dev`。
 
 最小配置如下：
 
@@ -118,7 +121,8 @@ DATABASE_URL=postgresql://seek:seek_dev_password@127.0.0.1:5432/seek
 REDIS_URL=redis://127.0.0.1:6379
 
 COLLABORATION_PORT=1234
-NEXT_PUBLIC_COLLABORATION_URL=ws://127.0.0.1:1234
+NEXT_PUBLIC_COLLABORATION_PORT=1234
+NEXT_PUBLIC_SEEK_DEV_HOST=192.168.1.20
 
 STORAGE_DRIVER=local
 STORAGE_LOCAL_DIR=./.data/attachments
@@ -172,7 +176,7 @@ pnpm db:seed
 | `collaboration` | Hocuspocus WebSocket、Yjs 房间和协作状态持久化 |
 | `worker` | BullMQ 投影、快照、搜索索引、Embedding、导入导出 |
 
-当前代码仍使用完整的 `NEXT_PUBLIC_COLLABORATION_URL`。接下来的目标实现将改为当前页面 hostname 和独立的 `1234` 端口，以支持局域网内多台设备使用开发机 IP 联调。完整的网络约定、加载链路、状态机、持久化规则和多人验收步骤见 [实时协作开发与联调约定](./collaboration-development.md)。
+`NEXT_PUBLIC_SEEK_DEV_HOST` 必须填写开发机当前的局域网 IPv4 地址，Next.js 使用它精确放行该地址下的开发 chunk/HMR；`127.0.0.1` 和 `::1` 会独立放行。协作客户端默认使用页面当前 hostname 加 `NEXT_PUBLIC_COLLABORATION_PORT`，所以 localhost、`127.0.0.1` 和局域网 IP 三种入口各自连接同名主机的 1234 端口。网络变化导致开发机 IP 改变时，需要更新 `NEXT_PUBLIC_SEEK_DEV_HOST` 并重启 `pnpm dev`。仍可使用 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖协作地址。完整的网络约定、加载链路、状态机、持久化规则和多人验收步骤见 [实时协作开发与联调约定](./collaboration-development.md)。
 
 ## 7. 推荐开发顺序
 

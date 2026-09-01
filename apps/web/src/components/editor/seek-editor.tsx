@@ -22,6 +22,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { Check, CloudOff, History, Wifi } from "lucide-react";
 import { isEmptyProjection, projectBlocks } from "@/lib/projection";
+import { resolveCollaborationUrl } from "@/lib/collaboration-url";
 import {
   createDefaultSnapshot,
   documentContentFingerprint,
@@ -93,29 +94,41 @@ export function SeekEditor({ documentId, initialTitle, initialProject }: Props) 
 }
 
 function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recovery }: Props & { recovery: RecoveryResult }) {
+  const [collaborationUrl] = useState(() => resolveCollaborationUrl({
+    pageUrl: window.location.href,
+    port: process.env.NEXT_PUBLIC_COLLABORATION_PORT,
+    explicitUrl: process.env.NEXT_PUBLIC_COLLABORATION_URL,
+  }));
   const [savedAt, setSavedAt] = useState<string | null>(recovery.snapshot.version > 0 ? recovery.snapshot.savedAt : null);
   const [version, setVersion] = useState(recovery.snapshot.version);
   const [online, setOnline] = useState(() => navigator.onLine);
-  const [collaborationStatus, setCollaborationStatus] = useState<"local" | "connecting" | "connected">(
-    process.env.NEXT_PUBLIC_COLLABORATION_URL ? "connecting" : "local",
+  const [collaborationStatus, setCollaborationStatus] = useState<"local" | "connecting" | "syncing" | "connected" | "retrying" | "failed">(
+    collaborationUrl ? "connecting" : "local",
   );
-  const [collaborationEnabled, setCollaborationEnabled] = useState(Boolean(process.env.NEXT_PUBLIC_COLLABORATION_URL));
   const [saveStatus, setSaveStatus] = useState<"idle" | "empty" | "pending" | "waiting" | "saving" | "saved" | "local-only">(recovery.source === "default" ? "empty" : recovery.snapshot.version > 0 ? "saved" : "idle");
   const versionRef = useRef(recovery.snapshot.version);
   const serverVersionRef = useRef(recovery.serverVersion);
   const savingRef = useRef(false);
   const pendingSaveRef = useRef(false);
   const collaborationHydratedRef = useRef(false);
+  const startedProviderRef = useRef<HocuspocusProvider | null>(null);
   const unsavedDraftRef = useRef(recovery.source === "default");
   const titleRef = useRef(initialTitle);
   const initialFingerprint = documentContentFingerprint(recovery.snapshot);
   const localFingerprintRef = useRef(initialFingerprint);
   const serverFingerprintRef = useRef<string | null>(recovery.source === "postgres" ? initialFingerprint : null);
   const provider = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_COLLABORATION_URL;
-    if (!url || !collaborationEnabled) return null;
-    return new HocuspocusProvider({ url, name: documentId, document: new Y.Doc(), token: "demo-editor" });
-  }, [collaborationEnabled, documentId]);
+    if (!collaborationUrl) return null;
+    const providerConfiguration = {
+      url: collaborationUrl,
+      name: documentId,
+      document: new Y.Doc(),
+      token: "demo-editor",
+      autoConnect: false,
+    };
+    return new HocuspocusProvider(providerConfiguration);
+  }, [collaborationUrl, documentId]);
+  const pendingProviderDestroyRef = useRef<{ provider: HocuspocusProvider; timer: number } | null>(null);
   const editor = useCreateBlockNote({
     schema: seekSchema,
     extensions: [syntaxHighlighter],
@@ -218,13 +231,34 @@ function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recover
       return;
     }
 
-    const fallbackTimer = window.setTimeout(() => {
-      if (collaborationHydratedRef.current) return;
-      setCollaborationStatus("local");
-      setCollaborationEnabled(false);
+    let authenticationFailed = false;
+    const slowConnectionTimer = window.setTimeout(() => {
+      if (collaborationHydratedRef.current || authenticationFailed) return;
+      setCollaborationStatus("retrying");
     }, 5_000);
     const onStatus = ({ status }: { status: string }) => {
-      setCollaborationStatus(status === "connected" ? "connected" : "connecting");
+      if (authenticationFailed) return;
+      if (status === "connected") {
+        setCollaborationStatus(provider.synced ? "connected" : "syncing");
+      } else if (status === "disconnected") {
+        setCollaborationStatus("retrying");
+      } else {
+        setCollaborationStatus("connecting");
+      }
+    };
+    const onDisconnect = ({ event }: { event: CloseEvent }) => {
+      if (process.env.NODE_ENV === "development") {
+        console.warn("Collaboration connection closed.", {
+          url: collaborationUrl,
+          code: event.code,
+          reason: event.reason || "No close reason provided",
+        });
+      }
+      setCollaborationStatus(authenticationFailed ? "failed" : "retrying");
+    };
+    const onAuthenticationFailed = () => {
+      authenticationFailed = true;
+      setCollaborationStatus("failed");
     };
     const onSynced = ({ state }: { state: boolean }) => {
       if (!state || collaborationHydratedRef.current) return;
@@ -237,17 +271,43 @@ function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recover
     };
 
     provider.on("status", onStatus);
+    provider.on("disconnect", onDisconnect);
+    provider.on("authenticationFailed", onAuthenticationFailed);
     provider.on("synced", onSynced);
     if (provider.synced) onSynced({ state: true });
+    if (startedProviderRef.current !== provider) {
+      startedProviderRef.current = provider;
+      void provider.connect();
+    }
 
     return () => {
-      window.clearTimeout(fallbackTimer);
+      window.clearTimeout(slowConnectionTimer);
       provider.off("status", onStatus);
+      provider.off("disconnect", onDisconnect);
+      provider.off("authenticationFailed", onAuthenticationFailed);
       provider.off("synced", onSynced);
     };
-  }, [editor, provider, recovery, save]);
+  }, [collaborationUrl, editor, provider, recovery, save]);
 
-  useEffect(() => () => provider?.destroy(), [provider]);
+  useEffect(() => {
+    const pendingDestroy = pendingProviderDestroyRef.current;
+    if (pendingDestroy) {
+      window.clearTimeout(pendingDestroy.timer);
+      if (pendingDestroy.provider !== provider) pendingDestroy.provider.destroy();
+      pendingProviderDestroyRef.current = null;
+    }
+
+    return () => {
+      if (!provider) return;
+      const timer = window.setTimeout(() => {
+        provider.destroy();
+        if (pendingProviderDestroyRef.current?.provider === provider) {
+          pendingProviderDestroyRef.current = null;
+        }
+      }, 0);
+      pendingProviderDestroyRef.current = { provider, timer };
+    };
+  }, [provider]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -306,12 +366,18 @@ function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recover
   }, [editor, save]);
 
   const collaborationLabel = !online
-    ? "离线编辑，恢复连接后同步"
+    ? "网络离线，等待重连"
     : collaborationStatus === "connected"
       ? "协作已连接"
-      : collaborationStatus === "connecting"
-        ? "协作连接中"
-        : "本地编辑模式";
+      : collaborationStatus === "syncing"
+        ? "正在同步文档"
+        : collaborationStatus === "retrying"
+          ? "协作连接失败，正在重试"
+          : collaborationStatus === "failed"
+            ? "协作认证失败"
+            : collaborationStatus === "connecting"
+              ? "协作连接中"
+              : "本地编辑模式";
   const savedTime = formatSavedTime(savedAt);
   const saveLabel = saveStatus === "saved"
     ? `已保存${savedTime ? ` ${savedTime}` : ""}`
@@ -335,7 +401,7 @@ function RecoveredSeekEditor({ documentId, initialTitle, initialProject, recover
       <span className="flex items-center gap-3"><span className="flex items-center gap-1">{saveStatus === "saved" ? <Check size={14} className="text-emerald-600" /> : <History size={14} />} {saveLabel}</span><span>v{version}</span></span>
     </div>
     <div className="seek-editor min-h-[620px] px-3 py-5 sm:px-12">
-      <BlockNoteView editor={editor} slashMenu={false} editable={collaborationStatus !== "connecting"}>
+      <BlockNoteView editor={editor} slashMenu={false} editable={collaborationStatus === "local" || collaborationStatus === "connected"}>
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) => filterSuggestionItems(
