@@ -23,6 +23,14 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--seek-green);
+  --color-brand-deep: var(--seek-green-deep);
+  --color-brand-solid: var(--brand-solid);
+  --color-brand-solid-foreground: var(--brand-solid-foreground);
+  --color-sidebar: var(--seek-sidebar);
+  --color-success-soft: var(--success-soft);
+  --color-success-foreground: var(--success-foreground);
+  --color-danger-soft: var(--danger-soft);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -30,35 +38,105 @@
 }
 
 :root {
+  --radius: 0.5rem;
   --background: #fafbfa;
   --foreground: #172019;
+  --card: #ffffff;
+  --card-foreground: #172019;
+  --popover: #ffffff;
+  --popover-foreground: #172019;
+  --primary: #1b211d;
+  --primary-foreground: #ffffff;
+  --secondary: #eaf9f0;
+  --secondary-foreground: #117c40;
+  --muted: rgb(0 0 0 / 0.03);
+  --muted-foreground: #66716a;
+  --accent: rgb(0 0 0 / 0.04);
+  --accent-foreground: #172019;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: rgb(0 0 0 / 0.08);
+  --input: rgb(0 0 0 / 0.10);
+  --ring: #29c16a;
   --seek-green: #29c16a;
   --seek-green-deep: #117c40;
   --seek-sidebar: #f5f7f5;
   --seek-muted: #66716a;
   --seek-soft: #98a19b;
+  --brand-solid: #159b4e;
+  --brand-solid-foreground: #ffffff;
+  --success-soft: #ecfdf5;
+  --success-foreground: #15803d;
+  --danger-soft: #fef2f2;
 }
 
-.bn-shadcn {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+.dark {
+  /* Notion-like neutral surfaces; green stays an accent rather than tinting the UI. */
+  --background: #191919;
+  --foreground: #dedede;
+  --card: #202020;
+  --card-foreground: #dedede;
+  --popover: #252525;
+  --popover-foreground: #dedede;
+  --primary: #eeeeee;
+  --primary-foreground: #202020;
+  --secondary: #2b2b2b;
+  --secondary-foreground: #dedede;
+  --muted: rgb(255 255 255 / 0.055);
+  --muted-foreground: #a3a3a3;
+  --accent: rgb(255 255 255 / 0.075);
+  --accent-foreground: #eeeeee;
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --border: rgb(255 255 255 / 0.094);
+  --input: rgb(255 255 255 / 0.14);
+  --ring: #8b8b8b;
+  --seek-green: #29c16a;
+  --seek-green-deep: #52c77f;
+  --seek-sidebar: #202020;
+  --seek-muted: #a3a3a3;
+  --seek-soft: #777777;
+  --brand-solid: #eeeeee;
+  --brand-solid-foreground: #202020;
+  --success-soft: rgb(41 193 106 / 0.13);
+  --success-foreground: #72d494;
+  --danger-soft: rgb(248 113 113 / 0.12);
+}
+
+.bn-root[data-color-scheme="light"] {
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-editor-background: var(--card);
+  --bn-colors-menu-text: var(--popover-foreground);
+  --bn-colors-menu-background: var(--popover);
+  --bn-colors-tooltip-text: var(--popover-foreground);
+  --bn-colors-tooltip-background: var(--popover);
+  --bn-colors-hovered-text: var(--accent-foreground);
+  --bn-colors-hovered-background: var(--accent);
+  --bn-colors-selected-text: var(--primary-foreground);
+  --bn-colors-selected-background: var(--primary);
+  --bn-colors-disabled-text: var(--muted-foreground);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: rgb(0 0 0 / 0.14);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--muted-foreground);
+}
+
+.bn-root[data-color-scheme="dark"] {
+  --bn-colors-editor-text: var(--foreground);
+  --bn-colors-editor-background: var(--card);
+  --bn-colors-menu-text: var(--popover-foreground);
+  --bn-colors-menu-background: var(--popover);
+  --bn-colors-tooltip-text: var(--popover-foreground);
+  --bn-colors-tooltip-background: var(--popover);
+  --bn-colors-hovered-text: var(--accent-foreground);
+  --bn-colors-hovered-background: var(--accent);
+  --bn-colors-selected-text: var(--primary-foreground);
+  --bn-colors-selected-background: var(--primary);
+  --bn-colors-disabled-text: var(--seek-soft);
+  --bn-colors-disabled-background: var(--muted);
+  --bn-colors-shadow: rgb(0 0 0 / 0.45);
+  --bn-colors-border: var(--border);
+  --bn-colors-side-menu: var(--muted-foreground);
 }
 
 @layer base {

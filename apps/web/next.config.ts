@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 function parseOrigins(value: string | undefined): string[] {
   return value?.split(/[\s,]+/).map((origin) => origin.trim()).filter(Boolean) ?? [];
+
 }
 
 const allowedDevOrigins = [

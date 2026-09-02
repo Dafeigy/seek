@@ -18,6 +18,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { resolveCollaborationUrl } from "@/lib/collaboration-url";
 import { collaborationCacheName } from "@/lib/collaboration-cache";
+import { useTheme } from "@/components/theme-provider";
 import type { DocumentBootstrap } from "@/lib/documents";
 
 type Props = { bootstrap: DocumentBootstrap };
@@ -40,6 +41,7 @@ function developmentEvent(event: string, fields: Record<string, unknown> = {}) {
 
 export function SeekEditor({ bootstrap }: Props) {
   const documentId = bootstrap.id;
+  const { resolvedTheme } = useTheme();
   const [online, setOnline] = useState(() => navigator.onLine);
   const [localHydrated, setLocalHydrated] = useState(false);
   const [collaborationStatus, setCollaborationStatus] = useState<"connecting" | "syncing" | "connected" | "retrying" | "failed">("connecting");
@@ -233,13 +235,13 @@ export function SeekEditor({ bootstrap }: Props) {
         ? "已保存到本机，等待同步"
         : "等待编辑";
 
-  return <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-    <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
-      <span className="flex items-center gap-2">{online && collaborationStatus === "connected" ? <Wifi size={14} className="text-emerald-600" /> : <CloudOff size={14} className="text-amber-600" />} {collaborationLabel}</span>
-      <span className="flex items-center gap-3"><span className="flex items-center gap-1">{draftStatus === "synced" ? <Check size={14} className="text-emerald-600" /> : <History size={14} />} {draftLabel}</span><span>草稿 r{bootstrap.contentVersion}</span></span>
+  return <div className="rounded-2xl border border-border bg-card shadow-sm">
+    <div className="flex items-center justify-between border-b border-border px-4 py-2 text-xs text-muted">
+      <span className="flex items-center gap-2">{online && collaborationStatus === "connected" ? <Wifi size={14} className="text-success-foreground" /> : <CloudOff size={14} className="text-amber-600 dark:text-amber-400" />} {collaborationLabel}</span>
+      <span className="flex items-center gap-3"><span className="flex items-center gap-1">{draftStatus === "synced" ? <Check size={14} className="text-success-foreground" /> : <History size={14} />} {draftLabel}</span><span>草稿 r{bootstrap.contentVersion}</span></span>
     </div>
     <div className="seek-editor min-h-[620px] px-3 py-5 sm:px-12">
-      <BlockNoteView editor={editor} slashMenu={false} editable>
+      <BlockNoteView editor={editor} theme={resolvedTheme} slashMenu={false} editable>
         <SuggestionMenuController triggerCharacter="/" getItems={async (query) => filterSuggestionItems(combineByGroup(getDefaultReactSlashMenuItems(editor), getMathSlashMenuItems(editor)), query)} />
       </BlockNoteView>
     </div>

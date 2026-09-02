@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+
 type Gaze = { x: number; y: number };
 type Mood = "idle" | "listening" | "excited";
 
@@ -103,7 +105,7 @@ export function SeekCompanion() {
   const leftOrbit = orbitEye(136.4, 66.9);
   const rightOrbit = orbitEye(185.2, 57.6);
 
-  return <button
+  return <Button
     ref={rootRef}
     type="button"
     className={`seek-companion seek-companion--${mood}`}
@@ -139,5 +141,5 @@ export function SeekCompanion() {
         </g>
       </g>
     </svg>
-  </button>;
+  </Button>;
 }
