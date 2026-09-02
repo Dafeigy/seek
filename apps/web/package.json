@@ -2,7 +2,7 @@
   "name": "@seek/web",
   "private": true,
   "scripts": {
-    "dev": "../../scripts/with-dev-origins.sh next dev",
+    "dev": "node ../../scripts/with-dev-origins.mjs next dev",
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",

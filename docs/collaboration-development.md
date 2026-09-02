@@ -88,7 +88,7 @@ export function getDevelopmentCollaborationUrl(): string {
 
 当前代码优先支持上述端口配置和运行时解析，同时保留 `NEXT_PUBLIC_COLLABORATION_URL` 显式覆盖能力。为了兼容旧的 loopback 配置，仅当页面通过局域网 IP 打开时，前端才把显式 URL 中的 `localhost`、`127.0.0.1`、`::1` 或 `0.0.0.0` 替换为当前页面主机。页面从 localhost 或 `127.0.0.1` 打开时保留各自的 loopback 地址，避免依赖可能已经变化的局域网 IP。显式配置的非 loopback 协作主机保持不变。
 
-Next.js 始终将 `127.0.0.1`、`::1` 加入开发源白名单。运行 `pnpm dev` 时，Web 进程会通过 `scripts/with-dev-origins.sh` 自动探测当前开发机已启用网卡的 IPv4 地址，并精确加入 `allowedDevOrigins`；切换网络后重启即可。额外域名或地址可通过 `SEEK_ALLOWED_DEV_ORIGINS` 追加，旧的 `NEXT_PUBLIC_SEEK_DEV_HOST` 仍保持兼容。只允许明确的开发地址，不配置无约束通配符。
+Next.js 始终将 `127.0.0.1`、`::1` 加入开发源白名单。运行 `pnpm dev` 时，Web 进程会通过 `scripts/with-dev-origins.mjs` 自动探测当前开发机已启用网卡的 IPv4 地址，并精确加入 `allowedDevOrigins`；切换网络后重启即可。额外域名或地址可通过 `SEEK_ALLOWED_DEV_ORIGINS` 追加，旧的 `NEXT_PUBLIC_SEEK_DEV_HOST` 仍保持兼容。只允许明确的开发地址，不配置无约束通配符。
 
 ## 4. 文档打开的目标链路
 
