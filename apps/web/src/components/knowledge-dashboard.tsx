@@ -407,9 +407,9 @@ const pageMeta: Record<Exclude<AppPage, "document">, { label: string; eyebrow: s
 };
 
 function ConversationContent() {
-  return <section className="mx-auto flex w-full max-w-4xl flex-1 items-end pb-10 sm:pb-12">
-    <div className="w-full rounded-[26px] border border-border bg-card/80 p-3 shadow-[0_8px_30px_rgba(15,23,42,.04)] backdrop-blur-sm transition-shadow focus-within:shadow-[0_10px_36px_rgba(15,23,42,.08)]">
-      <textarea rows={3} className="block w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-soft" placeholder="有什么我可以帮你的吗？" aria-label="输入消息" />
+  return <section className="mx-auto flex h-full w-full max-w-3xl flex-none items-end pb-4 sm:pb-6">
+    <div className="w-full rounded-[22px] border border-border bg-card/80 p-2.5 shadow-[0_8px_30px_rgba(15,23,42,.04)] backdrop-blur-sm transition-shadow focus-within:shadow-[0_10px_36px_rgba(15,23,42,.08)]">
+      <textarea rows={2} className="block w-full resize-none bg-transparent px-3 py-1.5 text-[14px] leading-6 outline-none placeholder:text-soft" placeholder="有什么我可以帮你的吗？" aria-label="输入消息" />
       <div className="flex items-center justify-between px-2 pt-2"><div className="flex items-center gap-1"><Button type="button" variant="outline" className="h-8 rounded-full px-3 text-xs text-muted"><Waves className="mr-1.5 size-3.5" />知识库</Button><Button type="button" variant="ghost" size="icon" className="size-8 rounded-full text-muted" aria-label="添加附件"><Plus className="size-4" /></Button></div><div className="flex items-center gap-1"><span className="hidden text-[10px] text-soft sm:inline">按 Enter 发送</span><Button type="button" size="icon" className="size-9 rounded-full bg-brand-solid text-brand-solid-foreground hover:bg-brand-solid/90" aria-label="发送"><Send className="size-4" /></Button></div></div>
     </div>
   </section>;
@@ -417,7 +417,7 @@ function ConversationContent() {
 
 function InDevelopmentContent({ page }: { page: Exclude<AppPage, "home" | "conversations" | "document"> }) {
   const Icon = page === "meetings" ? Mic2 : page === "inbox" ? Inbox : Search;
-  return <section className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center pb-12"><div className="flex max-w-sm flex-col items-center text-center"><span className="flex size-16 items-center justify-center rounded-2xl border border-border bg-card text-brand-deep shadow-sm"><Icon className="size-7" /></span><h2 className="mt-5 text-lg font-semibold tracking-tight">{pageMeta[page].label}正在开发中</h2><p className="mt-2 text-sm leading-6 text-soft">我们正在为你准备这个功能，敬请期待。</p></div></section>;
+  return <section className="mx-auto flex h-full w-full max-w-4xl flex-none items-start justify-center pt-5"><div className="flex max-w-sm flex-col items-center text-center"><span className="flex size-12 items-center justify-center rounded-2xl border border-border bg-card text-brand-deep shadow-sm"><Icon className="size-6" /></span><h2 className="mt-3 text-lg font-semibold tracking-tight">{pageMeta[page].label}正在开发中</h2><p className="mt-1 text-sm leading-6 text-soft">我们正在为你准备这个功能，敬请期待。</p></div></section>;
 }
 
 export function KnowledgeDashboard() {
@@ -442,13 +442,13 @@ export function KnowledgeDashboard() {
       </header>
 
       <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1120px] flex-col px-4 sm:px-8 lg:px-12">
-        <section className="flex min-h-[52vh] flex-1 flex-col items-center justify-center pb-10 pt-12 text-center sm:pt-16">
+        <section className="flex min-h-0 flex-1 flex-col items-center justify-center pb-10 pt-12 text-center sm:pt-16">
           <SeekCompanion />
           <div key={currentPage} className="page-content-transition"><h1 className="mt-5 text-[28px] font-semibold tracking-[-.035em] sm:text-[34px]">{currentPage === "home" ? `${greeting}，Cybersh1t` : pageMeta[currentPage].label}</h1><p className="mt-2 text-sm text-soft">{pageMeta[currentPage].eyebrow}</p></div>
         </section>
 
-        <div key={`content-${currentPage}`} className="page-content-transition flex flex-1 flex-col">
-        {currentPage === "conversations" ? <ConversationContent /> : currentPage !== "home" ? <InDevelopmentContent page={currentPage} /> : <section className="mx-auto w-full max-w-4xl pb-10 sm:pb-12">
+        <div key={`content-${currentPage}`} className="page-content-transition flex h-[320px] shrink-0 flex-col">
+        {currentPage === "conversations" ? <ConversationContent /> : currentPage !== "home" ? <InDevelopmentContent page={currentPage} /> : <section className="mx-auto w-full max-w-4xl pt-5 pb-10 sm:pb-12">
           <div className="mb-4 flex items-end justify-between"><div><h2 className="text-sm font-semibold">最近打开</h2><p className="mt-1 text-xs text-soft">继续上一次的阅读和编辑</p></div><Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs text-muted">查看全部</Button></div>
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,.025)]">
             <div className="hidden h-8 grid-cols-[minmax(0,1fr)_180px_110px] items-center border-b border-border px-4 text-[10px] font-medium text-soft sm:grid"><span>名称</span><span>最后编辑</span><span className="text-right">打开时间</span></div>
