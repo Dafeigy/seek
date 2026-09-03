@@ -59,16 +59,16 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
   return <main className="min-h-screen bg-canvas text-ink">
     {mobileOpen && <Button type="button" variant="ghost" className="fixed inset-0 z-40 h-auto w-auto cursor-default rounded-none bg-black/20 p-0 backdrop-blur-[2px] hover:bg-black/20 md:hidden" onClick={() => setMobileOpen(false)} aria-label="关闭侧边栏" />}
 
-    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[276px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
+    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[331.2px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
       <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button>
       <SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="document" />
     </aside>
 
-    <aside id="document-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen} className={cn("fixed inset-y-0 left-0 z-30 hidden w-[252px] border-r border-border bg-sidebar transition-transform duration-200 md:block", sidebarOpen ? "translate-x-0" : "-translate-x-full")}>
+    <aside id="document-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen} className={cn("fixed inset-y-0 left-0 z-30 hidden w-[302.4px] border-r border-border bg-sidebar transition-transform duration-200 md:block", sidebarOpen ? "translate-x-0" : "-translate-x-full")}>
       <SidebarContent compact={false} currentPage="document" />
     </aside>
 
-    <section className={cn("min-h-screen transition-[padding] duration-200", sidebarOpen && "md:pl-[252px]")}>
+    <section className={cn("min-h-screen transition-[padding] duration-200", sidebarOpen && "md:pl-[302.4px]")}>
       <header className="sticky top-0 z-20 flex h-14 items-center border-b border-border bg-canvas/90 px-3 backdrop-blur-xl sm:px-5">
         <Button variant="ghost" size="icon" className="mr-1 md:hidden" onClick={() => setMobileOpen(true)} aria-label="打开侧边栏"><Menu className="size-[18px]" /></Button>
         <Button variant="ghost" size="icon" className="mr-1 hidden md:inline-flex" onClick={() => setSidebarOpen((value) => !value)} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"} title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}>

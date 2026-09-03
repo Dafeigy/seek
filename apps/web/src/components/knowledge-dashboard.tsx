@@ -388,10 +388,10 @@ export function KnowledgeDashboard() {
 
   return <main className="min-h-screen bg-canvas text-ink">
     {mobileOpen && <Button type="button" variant="ghost" className="fixed inset-0 z-40 h-auto w-auto cursor-default rounded-none bg-black/20 p-0 backdrop-blur-[2px] hover:bg-black/20 md:hidden" onClick={() => setMobileOpen(false)} aria-label="关闭侧边栏" />}
-    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[276px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}><Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button><SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="home" /></aside>
-    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-sidebar transition-[width] duration-200 md:block", compact ? "w-[68px]" : "w-[252px]")}><SidebarContent compact={compact} currentPage="home" /></aside>
+    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[331.2px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}><Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button><SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="home" /></aside>
+    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-sidebar transition-[width] duration-200 md:block", compact ? "w-[68px]" : "w-[302.4px]")}><SidebarContent compact={compact} currentPage="home" /></aside>
 
-    <section className={cn("min-h-screen transition-[padding] duration-200", compact ? "md:pl-[68px]" : "md:pl-[252px]")}>
+    <section className={cn("min-h-screen transition-[padding] duration-200", compact ? "md:pl-[68px]" : "md:pl-[302.4px]")}>
       <header className="sticky top-0 z-20 flex h-16 items-center border-b border-border bg-canvas/85 px-4 backdrop-blur-xl sm:px-6">
         <Button variant="ghost" size="icon" className="mr-2 md:hidden" onClick={() => setMobileOpen(true)} aria-label="打开侧边栏"><Menu className="size-[18px]" /></Button>
         <Button variant="ghost" size="icon" className="mr-2 hidden md:inline-flex" onClick={() => setCompact((value) => !value)} aria-label={compact ? "展开侧边栏" : "收起侧边栏"}><PanelLeftClose className={cn("size-[18px] transition-transform", compact && "rotate-180")} /></Button>

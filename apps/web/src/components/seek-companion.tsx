@@ -1,145 +1,92 @@
 "use client";
 
+import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+type GrokCharacterInstance = {
+  destroy(): void;
+  setState(state: "idle" | "happy" | "listening", options?: { resetEyes?: boolean }): void;
+};
 
-type Gaze = { x: number; y: number };
-type Mood = "idle" | "listening" | "excited";
+type GrokCharacterConstructor = new (
+  svg: SVGSVGElement,
+  options: {
+    color: "black";
+    followPointer: false;
+    loginWrap: true;
+    mode: "manual";
+    shape: "squircle";
+    sizePx: number;
+    state: "idle";
+  },
+) => GrokCharacterInstance;
 
-// Prototype placeholder adapted from blessonism/grok-icon-study with permission
-// communicated by the product owner. Replace or formally license before release.
+declare global {
+  interface Window {
+    GrokCharacter?: GrokCharacterConstructor;
+  }
+}
+
+const VENDOR_ROOT = "/vendor/grok-icon-study";
+const ENGINE_SCRIPTS = [
+  "geometry-data.js",
+  "math.js",
+  "tables.js",
+  "pose.js",
+  "tricks.js",
+  "eyes.js",
+  "fx.js",
+  "character.js",
+] as const;
+
+const MOOD_LOOP = [
+  { state: "idle", duration: 2_400 },
+  { state: "happy", duration: 6_400 },
+  { state: "listening", duration: 2_400 },
+] as const;
 
 export function SeekCompanion() {
-  const rootRef = useRef<HTMLButtonElement>(null);
-  const gazeFrameRef = useRef<number | null>(null);
-  const spinFrameRef = useRef<number | null>(null);
-  const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reactingRef = useRef(false);
-  const [gaze, setGaze] = useState<Gaze>({ x: 0, y: 0 });
-  const [mood, setMood] = useState<Mood>("idle");
-  const [turn, setTurn] = useState(0);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [loadedScripts, setLoadedScripts] = useState(0);
+  const engineReady = loadedScripts === ENGINE_SCRIPTS.length;
 
   useEffect(() => {
-    const updateGaze = (event: PointerEvent) => {
-      if (gazeFrameRef.current) cancelAnimationFrame(gazeFrameRef.current);
-      gazeFrameRef.current = requestAnimationFrame(() => {
-        const bounds = rootRef.current?.getBoundingClientRect();
-        if (!bounds) return;
-        const dx = event.clientX - (bounds.left + bounds.width / 2);
-        const dy = event.clientY - (bounds.top + bounds.height / 2);
-        const distance = Math.max(Math.hypot(dx, dy), 1);
-        const strength = Math.min(distance / 260, 1);
-        setGaze({ x: (dx / distance) * 6 * strength, y: (dy / distance) * 5 * strength });
-      });
-    };
+    if (!engineReady || !svgRef.current || !window.GrokCharacter) return;
 
-    window.addEventListener("pointermove", updateGaze, { passive: true });
+    const character = new window.GrokCharacter(svgRef.current, {
+      color: "black",
+      followPointer: false,
+      loginWrap: true,
+      mode: "manual",
+      shape: "squircle",
+      sizePx: 180,
+      state: "idle",
+    });
+    svgRef.current.dataset.state = MOOD_LOOP[0].state;
+
+    let phase = 0;
+    let timer: number;
+    const advance = () => {
+      phase = (phase + 1) % MOOD_LOOP.length;
+      character.setState(MOOD_LOOP[phase].state);
+      if (svgRef.current) svgRef.current.dataset.state = MOOD_LOOP[phase].state;
+      timer = window.setTimeout(advance, MOOD_LOOP[phase].duration);
+    };
+    timer = window.setTimeout(advance, MOOD_LOOP[0].duration);
+
     return () => {
-      window.removeEventListener("pointermove", updateGaze);
-      if (gazeFrameRef.current) cancelAnimationFrame(gazeFrameRef.current);
-      if (spinFrameRef.current) cancelAnimationFrame(spinFrameRef.current);
+      window.clearTimeout(timer);
+      character.destroy();
     };
-  }, []);
+  }, [engineReady]);
 
-  useEffect(() => {
-    const loop: Mood[] = ["idle", "listening"];
-    let index = 0;
-    const interval = window.setInterval(() => {
-      if (reactingRef.current) return;
-      index = (index + 1) % loop.length;
-      setMood(loop[index]);
-    }, 4200);
-    return () => {
-      clearInterval(interval);
-      if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
-    };
-  }, []);
-
-  const react = (nextMood: Mood, duration?: number) => {
-    if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
-    reactingRef.current = nextMood === "excited";
-    setMood(nextMood);
-    if (duration) reactionTimerRef.current = setTimeout(() => {
-      reactingRef.current = false;
-      setMood("idle");
-    }, duration);
-  };
-
-  const startExcitedSpin = () => {
-    react("excited", 1100);
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    if (spinFrameRef.current) cancelAnimationFrame(spinFrameRef.current);
-    const startedAt = performance.now();
-    const duration = 700;
-    const animate = (now: number) => {
-      const progress = Math.min((now - startedAt) / duration, 1);
-      const eased = progress * progress * (3 - 2 * progress);
-      setTurn(eased * Math.PI * 2);
-      if (progress < 1) spinFrameRef.current = requestAnimationFrame(animate);
-      else {
-        setTurn(0);
-        spinFrameRef.current = null;
-      }
-    };
-    spinFrameRef.current = requestAnimationFrame(animate);
-  };
-
-  const orbitEye = (centerX: number, centerY: number) => {
-    if (mood !== "excited" || turn === 0) return { transform: undefined, opacity: 1 };
-    const sphereCenter = 114.27;
-    const radius = 100;
-    const offset = centerX - sphereCenter;
-    const startAngle = Math.asin(Math.max(-1, Math.min(1, offset / radius)));
-    const angle = startAngle + turn;
-    const depth = Math.cos(angle);
-    const startDepth = Math.max(Math.cos(startAngle), 0.02);
-    const projectedX = sphereCenter + radius * Math.sin(angle);
-    const scaleX = Math.max(depth, 0.02) / startDepth;
-    return {
-      transform: `translate(${(projectedX - centerX).toFixed(2)} 0) translate(${centerX} ${centerY}) scale(${scaleX.toFixed(4)} 1) translate(${-centerX} ${-centerY})`,
-      opacity: depth > 0.02 ? 1 : 0,
-    };
-  };
-
-  const leftOrbit = orbitEye(136.4, 66.9);
-  const rightOrbit = orbitEye(185.2, 57.6);
-
-  return <Button
-    ref={rootRef}
-    type="button"
-    className={`seek-companion seek-companion--${mood}`}
-    aria-label="和 Seek 打个招呼，触发兴奋转圈"
-    onClick={startExcitedSpin}
-  >
-    <div className="seek-companion__shadow" aria-hidden="true" />
-    <svg className="seek-companion__body" viewBox="-15 -15 259 259" aria-hidden="true">
-      <defs>
-        <linearGradient id="seek-body" x1="18" y1="5" x2="213" y2="224" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#40D97E" />
-          <stop offset="1" stopColor="#20B960" />
-        </linearGradient>
-        <filter id="seek-soft-shadow" x="-20%" y="-20%" width="140%" height="155%">
-          <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#158649" floodOpacity=".18" />
-        </filter>
-      </defs>
-
-      <path d="M228.541 114.228C228.541 130.133 225.184 145.994 218.738 160.534C212.674 174.217 203.904 186.669 193.065 196.988C155.933 232.34 99.497 238.596 55.5255 212.24C45.097 205.99 35.6851 198.072 27.7451 188.866C19.1926 178.953 12.3686 167.569 7.65781 155.351C2.60712 142.264 0 128.257 0 114.228C0 98.3219 3.35751 82.4611 9.80315 67.9215C15.8672 54.2382 24.6377 41.7862 35.4767 31.4668C72.6081 -3.88483 129.044 -10.1413 173.016 16.2153C183.444 22.4653 192.856 30.3829 200.796 39.5896C209.349 49.5018 216.173 60.8859 220.883 73.1037C225.934 86.1906 228.541 100.198 228.541 114.228Z" fill="url(#seek-body)" filter="url(#seek-soft-shadow)" />
-
-      <g className="seek-companion__speed-lines">
-        <path pathLength="1" d="M-14 101C34 65 98 49 181 58" fill="none" stroke="#55C9E8" strokeLinecap="round" strokeWidth="14" />
-        <path pathLength="1" d="M-5 72C47 43 115 37 199 55" fill="none" stroke="#8E6DE7" strokeLinecap="round" strokeWidth="16" />
-        <path pathLength="1" d="M12 40C67 24 137 30 216 55" fill="none" stroke="#E7749A" strokeLinecap="round" strokeWidth="18" />
-      </g>
-
-      <g className="seek-companion__face" style={{ transform: `translate(${gaze.x}px, ${gaze.y}px) rotate(${gaze.x * 0.45}deg)` }}>
-        <g transform={leftOrbit.transform} opacity={leftOrbit.opacity}>
-          <g className="seek-companion__eye seek-companion__eye--left"><path d="M130.36 45.98L132.71 46.19L134.98 46.81L137.11 47.83L138.97 49.28L140.47 51.09L141.68 53.12L142.73 55.23L143.76 57.36L144.78 59.49L145.79 61.62L146.79 63.76L147.76 65.91L148.71 68.07L149.63 70.25L150.52 72.43L151.37 74.63L151.99 76.91L152.10 79.26L151.64 81.57L150.59 83.68L149.04 85.45L147.10 86.78L144.90 87.62L142.56 87.93L140.22 87.71L137.98 86.99L135.93 85.82L134.17 84.24L132.78 82.34L131.69 80.25L130.77 78.08L129.87 75.89L128.94 73.72L128.00 71.56L127.03 69.40L126.05 67.26L125.05 65.12L124.03 62.99L122.93 60.90L121.87 58.79L121.03 56.59L120.72 54.26L121.10 51.93L122.15 49.83L123.75 48.10L125.76 46.89L128.01 46.19Z" fill="#F7FFF9" /></g>
-        </g>
-        <g transform={rightOrbit.transform} opacity={rightOrbit.opacity}>
-          <g className="seek-companion__eye seek-companion__eye--right"><path d="M176.61 37.08L178.72 37.59L180.70 38.48L182.52 39.65L184.20 41.03L185.71 42.59L187.03 44.31L188.20 46.14L189.26 48.03L190.27 49.96L191.26 51.89L192.23 53.84L193.16 55.80L194.05 57.78L194.92 59.77L195.74 61.78L196.53 63.80L197.27 65.84L197.97 67.90L198.47 70.01L198.63 72.18L198.40 74.33L197.58 76.33L195.95 77.72L193.83 78.08L191.71 77.65L189.76 76.69L188.03 75.38L186.53 73.82L185.28 72.05L184.25 70.13L183.40 68.14L182.63 66.11L181.87 64.07L181.07 62.05L180.25 60.04L179.39 58.05L178.49 56.07L177.57 54.10L176.61 52.15L175.62 50.22L174.59 48.31L173.53 46.41L172.54 44.48L171.86 42.42L171.76 40.26L172.62 38.30L174.45 37.19Z" fill="#F7FFF9" /></g>
-        </g>
-      </g>
-    </svg>
-  </Button>;
+  return <div className="seek-companion">
+    <svg ref={svgRef} className="seek-companion__canvas" role="img" aria-label="Seek 吉祥物" />
+    {!engineReady && <Script
+      key={ENGINE_SCRIPTS[loadedScripts]}
+      src={`${VENDOR_ROOT}/${ENGINE_SCRIPTS[loadedScripts]}`}
+      strategy="afterInteractive"
+      onReady={() => setLoadedScripts((count) => Math.min(count + 1, ENGINE_SCRIPTS.length))}
+    />}
+  </div>;
 }
