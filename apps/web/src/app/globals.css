@@ -177,6 +177,34 @@ input {
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
+/* Keep route changes calm: the logo stays mounted while content layers cross-fade. */
+.page-content-transition,
+.sidebar-content-transition {
+  animation: seek-content-in 260ms cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.sidebar-content-transition { view-transition-name: seek-sidebar-content; }
+
+.nav-active {
+  view-transition-name: seek-nav-active;
+}
+
+::view-transition-group(seek-nav-active) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+::view-transition-group(seek-page-content),
+::view-transition-group(seek-sidebar-content) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes seek-content-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .seek-companion {
   position: relative;
   display: grid;
@@ -200,5 +228,10 @@ input {
     animation-duration: .01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
+  }
+
+  .page-content-transition,
+  .sidebar-content-transition {
+    animation: none;
   }
 }
