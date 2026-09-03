@@ -23,8 +23,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-brand: var(--seek-green);
-  --color-brand-deep: var(--seek-green-deep);
+  --color-brand: var(--primary);
+  --color-brand-deep: var(--primary);
   --color-brand-solid: var(--brand-solid);
   --color-brand-solid-foreground: var(--brand-solid-foreground);
   --color-sidebar: var(--seek-sidebar);
@@ -39,65 +39,61 @@
 
 :root {
   --radius: 0.5rem;
-  --background: #fafbfa;
-  --foreground: #172019;
-  --card: #ffffff;
-  --card-foreground: #172019;
-  --popover: #ffffff;
-  --popover-foreground: #172019;
-  --primary: #1b211d;
-  --primary-foreground: #ffffff;
-  --secondary: #eaf9f0;
-  --secondary-foreground: #117c40;
-  --muted: rgb(0 0 0 / 0.03);
-  --muted-foreground: #66716a;
-  --accent: rgb(0 0 0 / 0.04);
-  --accent-foreground: #172019;
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
-  --border: rgb(0 0 0 / 0.08);
-  --input: rgb(0 0 0 / 0.10);
-  --ring: #29c16a;
-  --seek-green: #29c16a;
-  --seek-green-deep: #117c40;
-  --seek-sidebar: #f5f7f5;
-  --seek-muted: #66716a;
-  --seek-soft: #98a19b;
-  --brand-solid: #159b4e;
-  --brand-solid-foreground: #ffffff;
+  /* shadcn/ui default neutral palette. */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --seek-sidebar: oklch(0.985 0 0);
+  --seek-muted: oklch(0.556 0 0);
+  --seek-soft: oklch(0.556 0 0);
+  --brand-solid: var(--primary);
+  --brand-solid-foreground: var(--primary-foreground);
   --success-soft: #ecfdf5;
   --success-foreground: #15803d;
   --danger-soft: #fef2f2;
 }
 
 .dark {
-  /* Notion-like neutral surfaces; green stays an accent rather than tinting the UI. */
-  --background: #191919;
-  --foreground: #dedede;
-  --card: #202020;
-  --card-foreground: #dedede;
-  --popover: #252525;
-  --popover-foreground: #dedede;
-  --primary: #eeeeee;
-  --primary-foreground: #202020;
-  --secondary: #2b2b2b;
-  --secondary-foreground: #dedede;
-  --muted: rgb(255 255 255 / 0.055);
-  --muted-foreground: #a3a3a3;
-  --accent: rgb(255 255 255 / 0.075);
-  --accent-foreground: #eeeeee;
-  --destructive: #f87171;
-  --destructive-foreground: #ffffff;
-  --border: rgb(255 255 255 / 0.094);
-  --input: rgb(255 255 255 / 0.14);
-  --ring: #8b8b8b;
-  --seek-green: #29c16a;
-  --seek-green-deep: #52c77f;
-  --seek-sidebar: #202020;
-  --seek-muted: #a3a3a3;
-  --seek-soft: #777777;
-  --brand-solid: #eeeeee;
-  --brand-solid-foreground: #202020;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --seek-sidebar: oklch(0.205 0 0);
+  --seek-muted: oklch(0.708 0 0);
+  --seek-soft: oklch(0.556 0 0);
+  --brand-solid: var(--primary);
+  --brand-solid-foreground: var(--primary-foreground);
   --success-soft: rgb(41 193 106 / 0.13);
   --success-foreground: #72d494;
   --danger-soft: rgb(248 113 113 / 0.12);
@@ -165,7 +161,7 @@ input {
 }
 
 ::selection {
-  background: rgb(41 193 106 / 20%);
+  background: color-mix(in oklab, var(--primary) 20%, transparent);
 }
 
 .bg-canvas { background-color: var(--background); }

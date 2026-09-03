@@ -260,7 +260,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
       const projectDocuments = documents.filter((document) => document.project === project);
       const expanded = expandedProjects.has(project);
       return <div key={project} onDragEnter={() => setDropTarget(project)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = event.altKey ? "copy" : "move"; }} onDrop={(event) => onDrop(event, project)}>
-        <div className={cn("group/project flex h-9 items-center rounded-lg transition-colors hover:bg-accent", dropTarget === project && "bg-success-soft ring-1 ring-brand/40")}>
+        <div className={cn("group/project flex h-9 items-center rounded-lg transition-colors hover:bg-accent", dropTarget === project && "bg-accent ring-1 ring-brand/40")}>
         <Button variant="ghost" onClick={() => toggleProject(project)} aria-expanded={expanded} className="flex min-w-0 flex-1 justify-start gap-1.5 rounded-lg px-2 text-[13px] text-muted hover:bg-transparent hover:text-ink">
           <ChevronRight className={cn("size-3.5 shrink-0 text-soft transition-transform duration-200", expanded && "rotate-90")} />
           {isPrivate ? <FolderLock className="size-3.5 shrink-0 text-soft group-hover/project:text-brand-deep" /> : <Folder className="size-3.5 shrink-0 text-soft group-hover/project:text-brand-deep" />}
@@ -376,7 +376,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
           <p className="mb-2 text-xs font-medium text-muted">选择目标项目</p>
           <div className="grid gap-2">{projectNames.map((project) => {
             const disabled = dialog.kind === "move" && project === dialog.document.project;
-            return <label key={project} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors", draftProject === project ? "border-brand/50 bg-success-soft" : "border-border hover:bg-accent", disabled && "cursor-not-allowed opacity-45")}>
+            return <label key={project} className={cn("flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors", draftProject === project ? "border-brand/50 bg-accent" : "border-border hover:bg-accent", disabled && "cursor-not-allowed opacity-45")}>
               <input type="radio" name="target-project" value={project} checked={draftProject === project} disabled={disabled} onChange={() => setDraftProject(project)} className="accent-brand-deep" />
               <Folder className="size-4 text-soft" /><span className="flex-1">{project}</span>{project === dialog.document.project && <span className="text-[10px] text-soft">当前项目</span>}
             </label>;
