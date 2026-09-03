@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle, Bell, ChevronRight, ChevronsUpDown, Clock3, Copy, FileText, Folder, FolderInput,
   FolderLock, HelpCircle, Home, Inbox, Menu, MessageCircle, Mic2,
-  MoreHorizontal, PanelLeftClose, Plus, Search, SlidersHorizontal, SquarePen, Trash2, Waves, X,
+  MoreHorizontal, PanelLeftClose, Plus, Search, Send, SlidersHorizontal, SquarePen, Trash2, Waves, X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,9 @@ type DocumentDialog = {
 
 const sidebarActionButtonClassName = "flex size-7 cursor-pointer items-center justify-center rounded-md text-soft transition-colors hover:bg-accent hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40";
 
-export function SidebarContent({ compact, closeMobile, currentPage = "home" }: { compact: boolean; closeMobile?: () => void; currentPage?: "home" | "document" }) {
+type AppPage = "home" | "conversations" | "meetings" | "inbox" | "search" | "document";
+
+export function SidebarContent({ compact, closeMobile, currentPage = "home" }: { compact: boolean; closeMobile?: () => void; currentPage?: AppPage }) {
   const router = useRouter();
   const [expandedProjects, setExpandedProjects] = useState(() => new Set(["平台基础设施", "个人工作台"]));
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -240,6 +242,15 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
     if (document) void changeProject(document, project, event.altKey);
   }
 
+  function navigateWithTransition(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+    event.preventDefault();
+    closeMobile?.();
+    const run = () => router.push(href as never);
+    const transitionDocument = document as Document & { startViewTransition?: (callback: () => void) => unknown };
+    if (transitionDocument.startViewTransition) transitionDocument.startViewTransition(run);
+    else run();
+  }
+
   const renderProjectSection = (label: string, sectionProjects: readonly string[], isPrivate = false) => <section aria-labelledby={`sidebar-${label}`}>
     <div className="mb-1 mt-5 flex h-8 items-center justify-between px-3 text-[11px] font-medium text-soft">
       <span id={`sidebar-${label}`}>{label}</span>
@@ -299,11 +310,11 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
     <div className="scrollbar-none flex-1 overflow-y-auto px-2 pb-3">
       <nav aria-label="快捷导航" className={cn(compact ? "space-y-1" : "flex items-center gap-1 px-1")}>
         {[
-          { label: "首页", icon: Home, active: currentPage === "home", href: "/" },
-          { label: "对话", icon: MessageCircle },
-          { label: "会议", icon: Mic2 },
-          { label: "收件箱", icon: Inbox },
-          { label: "搜索", icon: Search },
+          { label: "知识库", icon: Home, active: currentPage === "home", href: "/" },
+          { label: "对话", icon: MessageCircle, active: currentPage === "conversations", href: "/conversations" },
+          { label: "会议", icon: Mic2, active: currentPage === "meetings", href: "/meetings" },
+          { label: "收件箱", icon: Inbox, active: currentPage === "inbox", href: "/inbox" },
+          { label: "搜索", icon: Search, active: currentPage === "search", href: "/search" },
         ].map((item) => {
           const className = cn(
             "group rounded-xl",
@@ -311,8 +322,8 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
           );
           const content = <><item.icon className={cn("size-[17px] shrink-0", item.active && "text-brand-deep")} />{!compact && item.active && <span className="truncate text-[13px] font-medium">{item.label}</span>}</>;
           return item.href
-            ? <Button key={item.label} asChild variant={item.active ? "secondary" : "ghost"} size={item.active && !compact ? "default" : "icon"} className={className}>
-              <Link href={item.href as never} title={item.label} onClick={closeMobile} aria-current={item.active ? "page" : undefined}>{content}</Link>
+            ? <Button key={item.label} asChild variant={item.active ? "secondary" : "ghost"} size={item.active && !compact ? "default" : "icon"} className={cn(className, item.active && "nav-active")}>
+              <Link href={item.href as never} title={item.label} onClick={(event) => navigateWithTransition(event, item.href)} aria-current={item.active ? "page" : undefined}>{content}</Link>
             </Button>
             : <Button key={item.label} type="button" variant="ghost" size="icon" title={item.label} onClick={closeMobile} className={className}>{content}</Button>;
         })}
@@ -321,8 +332,15 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
         <div className="my-4 h-px bg-border" />
         <nav aria-label="知识导航"><Button variant="ghost" onClick={closeMobile} className="group h-9 w-full justify-start gap-2.5 rounded-lg px-3 text-[13px] text-muted"><Waves className="size-4 text-soft group-hover:text-brand-deep" /><span>知识海</span></Button></nav>
         {operationStatus && <p role="status" className="mx-2 mt-3 rounded-lg bg-success-soft px-2 py-1.5 text-[11px] text-success-foreground">{operationStatus}</p>}
-        {renderProjectSection("项目", projects.filter((project) => !project.isPrivate).map((project) => project.name))}
-        {renderProjectSection("私人项目", projects.filter((project) => project.isPrivate).map((project) => project.name), true)}
+        <div key={currentPage} className="sidebar-content-transition">
+        {currentPage === "conversations" ? <section aria-labelledby="sidebar-conversations">
+          <div className="mb-1 mt-5 flex h-8 items-center justify-between px-3 text-[11px] font-medium text-soft"><span id="sidebar-conversations">最近对话</span><Button type="button" variant="ghost" size="icon" className={sidebarActionButtonClassName} aria-label="新建对话"><SquarePen className="size-3.5" /></Button></div>
+          <div className="space-y-0.5">{["Q3 产品路线图讨论", "整理设计系统的更新", "新员工入职资料", "分析本周项目进展"].map((conversation, index) => <Button key={conversation} type="button" variant={index === 0 ? "secondary" : "ghost"} className="h-auto min-h-9 w-full justify-start rounded-lg px-3 text-left text-[12px] font-normal"><MessageCircle className="mr-2 size-3.5 shrink-0 text-soft" /><span className="truncate">{conversation}</span></Button>)}</div>
+        </section> : <>
+          {renderProjectSection("项目", projects.filter((project) => !project.isPrivate).map((project) => project.name))}
+          {renderProjectSection("私人项目", projects.filter((project) => project.isPrivate).map((project) => project.name), true)}
+        </>}
+        </div>
       </>}
     </div>
     <div className="border-t border-border p-2">
@@ -380,7 +398,31 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
   </div>;
 }
 
+const pageMeta: Record<Exclude<AppPage, "document">, { label: string; eyebrow: string }> = {
+  home: { label: "知识库", eyebrow: "你的团队知识空间" },
+  conversations: { label: "对话", eyebrow: "和知识一起思考" },
+  meetings: { label: "会议", eyebrow: "整理团队的每一次碰面" },
+  inbox: { label: "收件箱", eyebrow: "需要你关注的内容" },
+  search: { label: "搜索", eyebrow: "在知识库中找到答案" },
+};
+
+function ConversationContent() {
+  return <section className="mx-auto flex w-full max-w-4xl flex-1 items-end pb-10 sm:pb-12">
+    <div className="w-full rounded-[26px] border border-border bg-card/80 p-3 shadow-[0_8px_30px_rgba(15,23,42,.04)] backdrop-blur-sm transition-shadow focus-within:shadow-[0_10px_36px_rgba(15,23,42,.08)]">
+      <textarea rows={3} className="block w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none placeholder:text-soft" placeholder="有什么我可以帮你的吗？" aria-label="输入消息" />
+      <div className="flex items-center justify-between px-2 pt-2"><div className="flex items-center gap-1"><Button type="button" variant="outline" className="h-8 rounded-full px-3 text-xs text-muted"><Waves className="mr-1.5 size-3.5" />知识库</Button><Button type="button" variant="ghost" size="icon" className="size-8 rounded-full text-muted" aria-label="添加附件"><Plus className="size-4" /></Button></div><div className="flex items-center gap-1"><span className="hidden text-[10px] text-soft sm:inline">按 Enter 发送</span><Button type="button" size="icon" className="size-9 rounded-full bg-brand-solid text-brand-solid-foreground hover:bg-brand-solid/90" aria-label="发送"><Send className="size-4" /></Button></div></div>
+    </div>
+  </section>;
+}
+
+function InDevelopmentContent({ page }: { page: Exclude<AppPage, "home" | "conversations" | "document"> }) {
+  const Icon = page === "meetings" ? Mic2 : page === "inbox" ? Inbox : Search;
+  return <section className="mx-auto flex w-full max-w-4xl flex-1 items-center justify-center pb-12"><div className="flex max-w-sm flex-col items-center text-center"><span className="flex size-16 items-center justify-center rounded-2xl border border-border bg-card text-brand-deep shadow-sm"><Icon className="size-7" /></span><h2 className="mt-5 text-lg font-semibold tracking-tight">{pageMeta[page].label}正在开发中</h2><p className="mt-2 text-sm leading-6 text-soft">我们正在为你准备这个功能，敬请期待。</p></div></section>;
+}
+
 export function KnowledgeDashboard() {
+  const pathname = usePathname();
+  const currentPage: Exclude<AppPage, "document"> = pathname === "/conversations" ? "conversations" : pathname === "/meetings" ? "meetings" : pathname === "/inbox" ? "inbox" : pathname === "/search" ? "search" : "home";
   const [compact, setCompact] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [greeting] = useState(greetingForNow);
@@ -388,24 +430,25 @@ export function KnowledgeDashboard() {
 
   return <main className="min-h-screen bg-canvas text-ink">
     {mobileOpen && <Button type="button" variant="ghost" className="fixed inset-0 z-40 h-auto w-auto cursor-default rounded-none bg-black/20 p-0 backdrop-blur-[2px] hover:bg-black/20 md:hidden" onClick={() => setMobileOpen(false)} aria-label="关闭侧边栏" />}
-    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[331.2px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}><Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button><SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="home" /></aside>
-    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-sidebar transition-[width] duration-200 md:block", compact ? "w-[68px]" : "w-[302.4px]")}><SidebarContent compact={compact} currentPage="home" /></aside>
+    <aside className={cn("fixed inset-y-0 left-0 z-50 w-[331.2px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}><Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button><SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage={currentPage} /></aside>
+    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-sidebar transition-[width] duration-200 md:block", compact ? "w-[68px]" : "w-[302.4px]")}><SidebarContent compact={compact} currentPage={currentPage} /></aside>
 
     <section className={cn("min-h-screen transition-[padding] duration-200", compact ? "md:pl-[68px]" : "md:pl-[302.4px]")}>
       <header className="sticky top-0 z-20 flex h-16 items-center border-b border-border bg-canvas/85 px-4 backdrop-blur-xl sm:px-6">
         <Button variant="ghost" size="icon" className="mr-2 md:hidden" onClick={() => setMobileOpen(true)} aria-label="打开侧边栏"><Menu className="size-[18px]" /></Button>
         <Button variant="ghost" size="icon" className="mr-2 hidden md:inline-flex" onClick={() => setCompact((value) => !value)} aria-label={compact ? "展开侧边栏" : "收起侧边栏"}><PanelLeftClose className={cn("size-[18px] transition-transform", compact && "rotate-180")} /></Button>
-        <div className="h-4 w-px bg-border" /><div className="ml-3 flex min-w-0 items-center gap-2 text-sm"><span className="hidden text-soft sm:inline">Seek Team</span><span className="hidden text-soft sm:inline">/</span><span className="truncate font-medium">首页</span></div>
+        <div className="h-4 w-px bg-border" /><div className="ml-3 flex min-w-0 items-center gap-2 text-sm"><span className="hidden text-soft sm:inline">Seek Team</span><span className="hidden text-soft sm:inline">/</span><span className="truncate font-medium">{pageMeta[currentPage].label}</span></div>
         <div className="ml-auto flex items-center"><Button variant="ghost" size="icon" aria-label="通知" className="relative"><Bell className="size-[17px]" /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-brand ring-2 ring-canvas" /></Button></div>
       </header>
 
       <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-[1120px] flex-col px-4 sm:px-8 lg:px-12">
         <section className="flex min-h-[52vh] flex-1 flex-col items-center justify-center pb-10 pt-12 text-center sm:pt-16">
           <SeekCompanion />
-          <h1 className="mt-5 text-[28px] font-semibold tracking-[-.035em] sm:text-[34px]">{greeting}，Cybersh1t</h1>
+          <div key={currentPage} className="page-content-transition"><h1 className="mt-5 text-[28px] font-semibold tracking-[-.035em] sm:text-[34px]">{currentPage === "home" ? `${greeting}，Cybersh1t` : pageMeta[currentPage].label}</h1><p className="mt-2 text-sm text-soft">{pageMeta[currentPage].eyebrow}</p></div>
         </section>
 
-        <section className="mx-auto w-full max-w-4xl pb-10 sm:pb-12">
+        <div key={`content-${currentPage}`} className="page-content-transition flex flex-1 flex-col">
+        {currentPage === "conversations" ? <ConversationContent /> : currentPage !== "home" ? <InDevelopmentContent page={currentPage} /> : <section className="mx-auto w-full max-w-4xl pb-10 sm:pb-12">
           <div className="mb-4 flex items-end justify-between"><div><h2 className="text-sm font-semibold">最近打开</h2><p className="mt-1 text-xs text-soft">继续上一次的阅读和编辑</p></div><Button type="button" variant="ghost" size="sm" className="h-9 px-2 text-xs text-muted">查看全部</Button></div>
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,.025)]">
             <div className="hidden h-8 grid-cols-[minmax(0,1fr)_180px_110px] items-center border-b border-border px-4 text-[10px] font-medium text-soft sm:grid"><span>名称</span><span>最后编辑</span><span className="text-right">打开时间</span></div>
@@ -416,7 +459,8 @@ export function KnowledgeDashboard() {
               <span className="flex items-center justify-end gap-1.5 text-[11px] text-soft"><Clock3 className="size-3" />{relativeTime(document.updatedAt)}</span>
             </Link>)}
           </div>
-        </section>
+        </section>}
+        </div>
       </div>
     </section>
   </main>;

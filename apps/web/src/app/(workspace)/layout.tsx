@@ -1,5 +1,5 @@
 import { KnowledgeDashboard } from "@/components/knowledge-dashboard";
 
-export default function HomePage() {
+export default function WorkspaceLayout() {
   return <KnowledgeDashboard />;
 }
