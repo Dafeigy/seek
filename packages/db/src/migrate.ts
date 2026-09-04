@@ -3,6 +3,58 @@ import postgres from "postgres";
 const sql = postgres(process.env.DATABASE_URL ?? "postgresql://seek:seek_dev_password@127.0.0.1:5432/seek");
 await sql`create extension if not exists pg_trgm`;
 await sql`
+  create table if not exists workspaces (
+    id text primary key,
+    name text not null,
+    created_at timestamptz not null default now()
+  )
+`;
+await sql`
+  create table if not exists users (
+    id text primary key,
+    email text not null,
+    display_name text not null,
+    password_hash text not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (email)
+  )
+`;
+await sql`
+  create table if not exists workspace_members (
+    workspace_id text not null references workspaces(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    role text not null check (role in ('owner', 'admin', 'member', 'guest')),
+    created_at timestamptz not null default now(),
+    primary key (workspace_id, user_id)
+  )
+`;
+await sql`
+  create table if not exists auth_sessions (
+    id text primary key,
+    user_id text not null references users(id) on delete cascade,
+    token_digest text not null unique,
+    expires_at timestamptz not null,
+    created_at timestamptz not null default now(),
+    last_seen_at timestamptz not null default now()
+  )
+`;
+await sql`
+  create table if not exists workspace_invitations (
+    id text primary key,
+    workspace_id text not null references workspaces(id) on delete cascade,
+    email text not null,
+    role text not null check (role in ('admin', 'member', 'guest')),
+    token_digest text not null unique,
+    invited_by_user_id text not null references users(id) on delete cascade,
+    expires_at timestamptz not null,
+    accepted_at timestamptz,
+    created_at timestamptz not null default now()
+  )
+`;
+await sql`create index if not exists auth_sessions_token_digest_idx on auth_sessions(token_digest)`;
+await sql`create index if not exists workspace_invitations_token_digest_idx on workspace_invitations(token_digest)`;
+await sql`
   create table if not exists projects (
     name text primary key, is_private boolean not null default false,
     created_at timestamptz not null default now()

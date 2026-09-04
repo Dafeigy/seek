@@ -3,12 +3,16 @@ import { EditorLoader as SeekEditor } from "@/components/editor/editor-loader";
 import { db } from "@/lib/server-db";
 import type { DocumentBootstrap } from "@/lib/documents";
 import { notFound } from "next/navigation";
+import { getCurrentSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 
 export default async function DocumentPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const session = await getCurrentSession();
+  if (!session) redirect("/login");
   const { id } = await params;
   const [row] = await db`
     select id, title, project, block_json, markdown, plain_text, content_version, updated_at
@@ -26,6 +30,7 @@ export default async function DocumentPage({
     plainText: row.plain_text,
     contentVersion: Number(row.content_version),
     updatedAt: new Date(row.updated_at).toISOString(),
+    collaborationCacheScope: `${session.workspaceId}:${session.userId}`,
   };
 
   return <DocumentWorkspace documentId={id} title={bootstrap.title} project={bootstrap.project}>

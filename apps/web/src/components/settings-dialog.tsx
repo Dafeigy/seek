@@ -1,139 +1,31 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Monitor, Moon, Settings2, Sun, X } from "lucide-react";
-
+import { Check, Monitor, Moon, Settings2, Sun, Users, X } from "lucide-react";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const THEME_OPTIONS: Array<{
-  value: Theme;
-  label: string;
-  description: string;
-  icon: typeof Sun;
-}> = [
-  { value: "light", label: "Light", description: "始终使用浅色外观", icon: Sun },
-  { value: "dark", label: "Dark", description: "始终使用深色外观", icon: Moon },
-  { value: "system", label: "Auto", description: "跟随系统外观设置", icon: Monitor },
-];
+const themes: Array<{ value: Theme; label: string; icon: typeof Sun }> = [{ value: "light", label: "Light", icon: Sun }, { value: "dark", label: "Dark", icon: Moon }, { value: "system", label: "Auto", icon: Monitor }];
+type Role = "owner" | "admin" | "member" | "guest";
+type Member = { id: string; email: string; displayName: string; role: Role; joinedAt: string; lastActiveAt: string };
+type Session = { userId: string; role: Role };
+const labels: Record<Role, string> = { owner: "所有者", admin: "管理员", member: "成员", guest: "访客" };
+const permissions: Record<Role, string> = { owner: "完整管理权限", admin: "管理成员和邀请", member: "创建与协作", guest: "受限访问" };
+const active = (value: string) => { const d = Date.now() - new Date(value).getTime(); return d < 60_000 ? "刚刚活跃" : d < 3_600_000 ? `${Math.floor(d / 60_000)} 分钟前` : d < 86_400_000 ? `${Math.floor(d / 3_600_000)} 小时前` : `${Math.floor(d / 86_400_000)} 天前`; };
 
 export function SettingsDialog({ compact }: { compact: boolean }) {
-  const [open, setOpen] = useState(false);
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
-  const { theme, setTheme } = useTheme();
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => setOpen(true)}
-        title={compact ? "设置" : undefined}
-        aria-haspopup="dialog"
-        className={cn(
-          "h-9 w-full text-[13px] font-normal text-muted",
-          compact ? "px-0" : "justify-start gap-2.5 px-3",
-        )}
-      >
-        <Settings2 className="size-4" />
-        {!compact && "设置"}
-      </Button>
-
-      {open && (
-        <dialog
-          ref={dialogRef}
-          aria-labelledby={titleId}
-          onCancel={(event) => {
-            event.preventDefault();
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setOpen(false);
-          }}
-          className="fixed inset-0 m-auto max-h-[min(720px,calc(100vh-2rem))] w-[min(720px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-card p-0 text-left text-ink shadow-2xl backdrop:bg-black/55 backdrop:backdrop-blur-[2px]"
-        >
-          <div className="flex h-16 items-center border-b border-border px-5">
-            <div>
-              <h2 id={titleId} className="text-base font-semibold tracking-tight">设置</h2>
-              <p className="mt-0.5 text-xs text-soft">管理 Seek 的偏好设置</p>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setOpen(false)}
-              className="ml-auto size-8 text-soft"
-              aria-label="关闭设置"
-            >
-              <X className="size-4" />
-            </Button>
-          </div>
-
-          <div className="grid min-h-[390px] sm:grid-cols-[168px_minmax(0,1fr)]">
-            <nav aria-label="设置分类" className="border-b border-border bg-muted/30 p-3 sm:border-b-0 sm:border-r">
-              <Button type="button" variant="secondary" className="h-9 w-full justify-start px-3 text-[13px]">
-                <Sun className="size-4" />外观
-              </Button>
-            </nav>
-
-            <section aria-labelledby={`${titleId}-appearance`} className="p-5 sm:p-7">
-              <h3 id={`${titleId}-appearance`} className="text-sm font-semibold">外观</h3>
-              <p className="mt-1 text-xs leading-5 text-soft">选择最适合你的界面主题。更改会立即应用到页面和编辑器。</p>
-
-              <div role="radiogroup" aria-label="主题" className="mt-6 grid gap-3 sm:grid-cols-3">
-                {THEME_OPTIONS.map((option) => {
-                  const selected = theme === option.value;
-                  const Icon = option.icon;
-                  return (
-                    <Button
-                      key={option.value}
-                      type="button"
-                      variant="outline"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => setTheme(option.value)}
-                      className={cn(
-                        "relative h-auto min-h-36 flex-col items-stretch justify-start gap-3 rounded-xl p-3 text-left font-normal",
-                        selected && "border-ring bg-accent ring-2 ring-ring/25",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex h-16 items-center justify-center rounded-lg border",
-                          option.value === "light" && "border-black/10 bg-white text-neutral-700",
-                          option.value === "dark" && "border-white/10 bg-[#202020] text-neutral-200",
-                          option.value === "system" && "border-border bg-[linear-gradient(135deg,#fff_0_49.5%,#202020_50%_100%)] text-neutral-500",
-                        )}
-                      >
-                        <Icon className="size-5" />
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="font-medium">{option.label}</span>
-                        {selected && <Check className="ml-auto size-4" />}
-                      </span>
-                      <span className="text-[11px] leading-4 text-muted-foreground">{option.description}</span>
-                    </Button>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-
-          <div className="flex items-center justify-end border-t border-border px-5 py-3">
-            <Button type="button" onClick={() => setOpen(false)} size="sm">完成</Button>
-          </div>
-        </dialog>
-      )}
-    </>
-  );
+  const [open, setOpen] = useState(false); const ref = useRef<HTMLDialogElement>(null); const titleId = useId(); const { theme, setTheme } = useTheme();
+  const [section, setSection] = useState<"appearance" | "members">("appearance"); const [session, setSession] = useState<Session | null>(null); const [members, setMembers] = useState<Member[]>([]); const [email, setEmail] = useState(""); const [inviteRole, setInviteRole] = useState<Role>("member"); const [status, setStatus] = useState<string | null>(null); const [reset, setReset] = useState<Member | null>(null); const [password, setPassword] = useState("");
+  const canManage = session?.role === "owner" || session?.role === "admin";
+  const loadMembers = async () => { const r = await fetch("/api/workspace/invitations"); if (!r.ok) throw new Error("无法获取成员列表"); setMembers(await r.json() as Member[]); };
+  useEffect(() => { const d = ref.current; if (!d) return; if (open && !d.open) d.showModal(); if (!open && d.open) d.close(); }, [open]);
+  useEffect(() => { if (!open) return; void fetch("/api/auth/session").then((r) => r.ok ? r.json() as Promise<Session> : null).then((v) => { setSession(v); if (v?.role === "owner" || v?.role === "admin") return loadMembers(); }).catch(() => setStatus("加载成员信息失败，请重试")); }, [open]);
+  async function call(url: string, method: "POST" | "PATCH" | "DELETE", body?: object) { const r = await fetch(url, { method, headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined }); const data = await r.json().catch(() => ({})) as { error?: string }; if (!r.ok) throw new Error(data.error ?? "操作失败"); }
+  async function invite() { try { await call("/api/workspace/invitations", "POST", { email, role: inviteRole }); setEmail(""); setStatus("邀请已创建；未配置邮件服务时请从响应中复制邀请链接。"); } catch (e) { setStatus(e instanceof Error ? e.message : "邀请失败"); } }
+  const editable = (m: Member) => m.id !== session?.userId && m.role !== "owner" && (session?.role === "owner" || m.role === "member" || m.role === "guest");
+  async function changeRole(m: Member, role: string) { try { await call(`/api/workspace/members/${m.id}`, "PATCH", { role }); await loadMembers(); setStatus(`已更新 ${m.displayName} 的角色`); } catch (e) { setStatus(e instanceof Error ? e.message : "更新失败"); } }
+  async function doReset() { if (!reset) return; try { await call(`/api/workspace/members/${reset.id}`, "POST", { password }); setStatus(`已重置 ${reset.displayName} 的密码，并使其所有会话失效。`); setReset(null); setPassword(""); } catch (e) { setStatus(e instanceof Error ? e.message : "重置失败"); } }
+  async function remove(m: Member) { if (!window.confirm(`确定删除成员“${m.displayName}”吗？该成员将立即失去工作区访问权限。`)) return; try { await call(`/api/workspace/members/${m.id}`, "DELETE"); await loadMembers(); setStatus(`已删除成员 ${m.displayName}`); } catch (e) { setStatus(e instanceof Error ? e.message : "删除失败"); } }
+  return <><Button type="button" variant="ghost" onClick={() => setOpen(true)} title={compact ? "设置" : undefined} aria-haspopup="dialog" className={cn("h-9 w-full text-[13px] font-normal text-muted", compact ? "px-0" : "justify-start gap-2.5 px-3")}><Settings2 className="size-4" />{!compact && "设置"}</Button>{open && <dialog ref={ref} aria-labelledby={titleId} onCancel={(e) => { e.preventDefault(); setOpen(false); }} onClose={() => setOpen(false)} onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }} className="fixed inset-0 m-auto max-h-[min(760px,calc(100vh-2rem))] w-[min(920px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-card p-0 text-left text-ink shadow-2xl backdrop:bg-black/55"><div className="flex h-16 items-center border-b border-border px-5"><div><h2 id={titleId} className="text-base font-semibold">设置</h2><p className="mt-0.5 text-xs text-soft">管理 Seek 的偏好设置</p></div><Button type="button" variant="ghost" size="icon" onClick={() => setOpen(false)} className="ml-auto size-8 text-soft" aria-label="关闭设置"><X className="size-4" /></Button></div><div className="grid min-h-[430px] sm:grid-cols-[168px_minmax(0,1fr)]"><nav aria-label="设置分类" className="border-b border-border bg-muted/30 p-3 sm:border-b-0 sm:border-r"><Button type="button" variant={section === "appearance" ? "secondary" : "ghost"} onClick={() => setSection("appearance")} className="h-9 w-full justify-start px-3 text-[13px]"><Sun className="size-4" />外观</Button>{canManage && <Button type="button" variant={section === "members" ? "secondary" : "ghost"} onClick={() => setSection("members")} className="mt-1 h-9 w-full justify-start px-3 text-[13px]"><Users className="size-4" />用户管理</Button>}</nav>{section === "appearance" ? <section className="p-5 sm:p-7"><h3 className="text-sm font-semibold">外观</h3><p className="mt-1 text-xs text-soft">选择最适合你的界面主题。</p><div role="radiogroup" className="mt-6 grid gap-3 sm:grid-cols-3">{themes.map((o) => { const Icon = o.icon; const selected = theme === o.value; return <Button key={o.value} type="button" variant="outline" role="radio" aria-checked={selected} onClick={() => setTheme(o.value)} className={cn("h-32 flex-col gap-3 rounded-xl", selected && "border-ring bg-accent ring-2 ring-ring/25")}><Icon className="size-5" /><span className="flex gap-2">{o.label}{selected && <Check className="size-4" />}</span></Button>; })}</div></section> : <section className="min-w-0 overflow-y-auto p-5 sm:p-7"><h3 className="text-sm font-semibold">用户管理</h3><p className="mt-1 text-xs leading-5 text-soft">管理成员角色、权限与访问状态。管理员只能管理成员和访客。</p><div className="mt-5 grid gap-2 rounded-xl border border-border bg-muted/20 p-3 sm:grid-cols-[1fr_130px_auto]"><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="member@example.com" className="h-9 rounded-lg border border-input bg-transparent px-2.5 text-sm" /><select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)} className="h-9 rounded-lg border border-input bg-transparent px-2.5 text-sm"><option value="member">成员</option>{session?.role === "owner" && <option value="admin">管理员</option>}<option value="guest">访客</option></select><Button type="button" onClick={() => void invite()} disabled={!email.trim()}>邀请用户</Button></div>{status && <p role="status" className="mt-3 text-xs leading-5 text-soft">{status}</p>}<div className="mt-5 overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[650px] text-left text-xs"><thead className="border-b border-border bg-muted/30 text-soft"><tr><th className="px-3 py-2.5 font-medium">用户</th><th className="px-3 py-2.5 font-medium">角色与权限</th><th className="px-3 py-2.5 font-medium">最近活跃</th><th className="px-3 py-2.5 text-right font-medium">操作</th></tr></thead><tbody>{members.map((m) => <tr key={m.id} className="border-b border-border last:border-0"><td className="px-3 py-3"><p className="font-medium text-ink">{m.displayName}{m.id === session?.userId && <span className="ml-1 text-soft">(你)</span>}</p><p className="mt-0.5 text-soft">{m.email}</p></td><td className="px-3 py-3">{editable(m) ? <select aria-label={`${m.displayName} 的角色`} value={m.role} onChange={(e) => void changeRole(m, e.target.value)} className="h-8 rounded-md border border-input bg-card px-2 text-xs"><option value="member">成员</option>{session?.role === "owner" && <option value="admin">管理员</option>}<option value="guest">访客</option></select> : <span className="font-medium">{labels[m.role]}</span>}<p className="mt-1 text-soft">{permissions[m.role]}</p></td><td className="px-3 py-3 text-soft">{active(m.lastActiveAt)}</td><td className="px-3 py-3"><div className="flex justify-end gap-1.5">{editable(m) && <><Button type="button" variant="outline" size="sm" onClick={() => { setReset(m); setPassword(""); }}>重置密码</Button><Button type="button" variant="ghost" size="sm" onClick={() => void remove(m)} className="text-destructive">删除</Button></>}</div></td></tr>)}</tbody></table></div></section>}</div><div className="flex justify-end border-t border-border px-5 py-3"><Button type="button" onClick={() => setOpen(false)} size="sm">完成</Button></div>{reset && <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 p-4"><section role="dialog" aria-modal="true" aria-label="重置密码" className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-xl"><h3 className="text-sm font-semibold">重置 {reset.displayName} 的密码</h3><p className="mt-1 text-xs leading-5 text-soft">设置后将使该用户所有已登录会话失效。密码至少 12 个字符。</p><input autoFocus value={password} onChange={(e) => setPassword(e.target.value)} type="password" minLength={12} placeholder="输入新密码" className="mt-4 h-10 w-full rounded-lg border border-input bg-transparent px-3 text-sm" /><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => setReset(null)}>取消</Button><Button type="button" size="sm" disabled={password.length < 12} onClick={() => void doReset()}>确认重置</Button></div></section></div>}</dialog>}</>;
 }

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/server-db";
 import { normalizeProject, normalizeTitle } from "@/lib/documents";
+import { getRequestSession } from "@/lib/auth";
 
-export async function GET(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
   const [document] = await db`select id, title, project, block_json, markdown, plain_text, content_version, updated_at from documents where id = ${id} and deleted_at is null`;
   return document ? NextResponse.json({
@@ -17,13 +19,15 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   }) : NextResponse.json({ error: "Document not found" }, { status: 404 });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   return NextResponse.json({
     error: "Whole-document saves are disabled; update the realtime Y.Doc instead",
   }, { status: 409 });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
   const body = await request.json().catch(() => ({})) as { title?: unknown; project?: unknown };
   if (body.title === undefined && body.project === undefined) {
@@ -43,7 +47,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   return NextResponse.json({ id: document.id, title: document.title, project: document.project, updatedAt: document.updated_at });
 }
 
-export async function DELETE(_: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
   const [document] = await db`update documents set deleted_at = now(), updated_at = now() where id = ${id} and deleted_at is null returning id`;
   return document

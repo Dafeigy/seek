@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle, Bell, ChevronRight, ChevronsUpDown, Clock3, Copy, FileText, Folder, FolderInput,
   FolderLock, HelpCircle, Home, Inbox, Menu, MessageCircle, Mic2,
-  MoreHorizontal, PanelLeftClose, Plus, Search, Send, SlidersHorizontal, SquarePen, Trash2, Waves, X,
+  LogOut, MoreHorizontal, PanelLeftClose, Plus, Search, Send, SlidersHorizontal, SquarePen, Trash2, UserRound, Waves, X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -96,9 +96,21 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
   const [draftProjectName, setDraftProjectName] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [account, setAccount] = useState<{ displayName: string; email: string; workspaceName: string } | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
   const { documents, reload } = useDocuments();
   const { projects, reload: reloadProjects } = useProjects();
   const projectNames = projects.map((project) => project.name);
+
+  useEffect(() => {
+    void fetch("/api/auth/session").then((response) => response.ok ? response.json() as Promise<{ displayName: string; email: string; workspaceName: string }> : null).then(setAccount).catch(() => setAccount(null));
+  }, []);
+
+  async function signOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login" as never);
+    router.refresh();
+  }
 
   useEffect(() => {
     if (!dialog && !projectDialog) return;
@@ -300,11 +312,17 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
         : "删除文档";
 
   return <div className="flex h-full flex-col">
-    <div className={cn("flex h-16 items-center", compact ? "justify-center px-2" : "px-3")}>
-      <Button type="button" variant="ghost" className={cn("group h-auto min-w-0 rounded-xl p-2 text-left", compact ? "justify-center" : "w-full justify-start gap-2.5")} aria-label="切换工作区">
-        <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-sm font-semibold text-primary-foreground shadow-sm">S<span className="absolute -right-0.5 -top-0.5 size-2 rounded-full border-2 border-sidebar bg-brand" /></span>
-        {!compact && <><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold tracking-tight">Seek Team</span><span className="block text-[11px] text-muted">团队工作区</span></span><ChevronsUpDown className="size-3.5 text-muted" /></>}
+    <div className="relative px-2 py-2">
+      <Button type="button" variant="ghost" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen} aria-haspopup="menu" title={compact ? account?.displayName ?? "当前账户" : undefined} className={cn("h-14 w-full rounded-xl", compact ? "justify-center px-0" : "justify-start gap-2.5 px-2")}>
+        <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-sm font-semibold text-primary-foreground shadow-sm">S<span className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full border-2 border-sidebar bg-success-foreground" aria-label="在线" /></span>
+        {!compact && <span className="min-w-0 flex-1 text-left"><span className="block truncate text-[13px] font-semibold tracking-tight">{account?.workspaceName ?? "Seek Team"}</span><span className="block truncate text-[11px] text-muted">{account?.displayName ?? "加载账户…"}{account?.email ? ` · ${account.email}` : ""}</span></span>}
+        {!compact && <ChevronsUpDown className="size-3.5 text-soft" />}
       </Button>
+      {accountOpen && <div role="menu" className={cn("absolute top-14 z-50 w-56 rounded-xl border border-border bg-card p-1.5 shadow-xl", compact ? "left-2" : "left-2 right-2 w-auto")}>
+        {!compact && <p className="px-2 py-1.5 text-[10px] text-soft">{account?.workspaceName ?? "当前工作区"} · {account?.displayName ?? "当前用户"}</p>}
+        <Button type="button" variant="ghost" size="sm" role="menuitem" disabled className="h-8 w-full justify-start px-2 text-[12px]"><UserRound className="size-3.5" />账户信息（即将推出）</Button>
+        <Button type="button" variant="ghost" size="sm" role="menuitem" onClick={() => void signOut()} className="h-8 w-full justify-start px-2 text-[12px] text-destructive hover:bg-danger-soft hover:text-destructive"><LogOut className="size-3.5" />退出登录</Button>
+      </div>}
     </div>
 
     <div className="scrollbar-none flex-1 overflow-y-auto px-2 pb-3">

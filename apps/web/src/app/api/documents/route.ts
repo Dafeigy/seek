@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 
 import { createDocumentId, normalizeProject, normalizeTitle } from "@/lib/documents";
 import { db } from "@/lib/server-db";
+import { getRequestSession } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const rows = await db`
     select id, title, project, updated_at, created_at
     from documents
@@ -20,6 +22,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { project?: unknown; sourceDocumentId?: unknown };
   const project = normalizeProject(body.project);
   const id = createDocumentId();

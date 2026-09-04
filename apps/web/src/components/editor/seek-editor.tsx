@@ -55,7 +55,7 @@ export function SeekEditor({ bootstrap }: Props) {
     void documentId;
     return new Y.Doc();
   }, [documentId]);
-  const localPersistence = useMemo(() => new IndexeddbPersistence(collaborationCacheName(documentId), ydoc), [documentId, ydoc]);
+  const localPersistence = useMemo(() => new IndexeddbPersistence(collaborationCacheName(documentId, bootstrap.collaborationCacheScope), ydoc), [bootstrap.collaborationCacheScope, documentId, ydoc]);
   const provider = useMemo(() => {
     if (!collaborationUrl) return null;
     const websocketProvider = new HocuspocusProviderWebsocket({ url: collaborationUrl, autoConnect: false });

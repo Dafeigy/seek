@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 
 import { normalizeProject } from "@/lib/documents";
 import { db } from "@/lib/server-db";
+import { getRequestSession } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const rows = await db`
     select name, is_private
     from projects
@@ -16,6 +18,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { name?: unknown; isPrivate?: unknown };
   if (typeof body.name !== "string" || !body.name.trim()) {
     return NextResponse.json({ error: "Project name is required" }, { status: 400 });

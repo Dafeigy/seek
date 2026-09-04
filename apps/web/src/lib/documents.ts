@@ -27,6 +27,7 @@ export type DocumentBootstrap = {
   plainText: string;
   contentVersion: number;
   updatedAt: string;
+  collaborationCacheScope?: string;
 };
 
 export function normalizeTitle(value: unknown, fallback = "未命名文档") {
