@@ -14,6 +14,8 @@ export type DocumentSummary = {
   id: string;
   title: string;
   project: string;
+  parentId: string | null;
+  sortOrder: number;
   updatedAt: string;
   createdAt: string;
 };
@@ -22,6 +24,7 @@ export type DocumentBootstrap = {
   id: string;
   title: string;
   project: string;
+  parentId?: string | null;
   blockJson: unknown[];
   markdown: string;
   plainText: string;

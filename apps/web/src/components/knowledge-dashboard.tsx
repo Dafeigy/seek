@@ -246,12 +246,20 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
     }
   }
 
-  function onDrop(event: React.DragEvent, project: string) {
+  function onDrop(event: React.DragEvent, project: string, parentId: string | null = null) {
     event.preventDefault();
     setDropTarget(null);
     const id = event.dataTransfer.getData("application/x-seek-document");
     const document = documents.find((item) => item.id === id);
-    if (document) void changeProject(document, project, event.altKey);
+    if (!document) return;
+    if (event.altKey) {
+      void fetch("/api/documents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceDocumentId: document.id, project, parentId }) })
+        .then((response) => { if (!response.ok) throw new Error(`Copy failed: ${response.status}`); reload(); window.dispatchEvent(new Event("seek:documents-changed")); });
+      return;
+    }
+    void fetch(`/api/documents/${encodeURIComponent(document.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, parentId }) })
+      .then((response) => { if (!response.ok) throw new Error(`Move failed: ${response.status}`); reload(); window.dispatchEvent(new Event("seek:documents-changed")); })
+      .catch(() => setOperationStatus("无法移动到该文档下"));
   }
 
   function navigateWithTransition(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
@@ -283,25 +291,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
           <Button asChild variant="ghost" size="icon" className={cn(sidebarActionButtonClassName, "absolute inset-0 opacity-0 transition-opacity group-hover/project:opacity-100 focus:opacity-100")}><Link href={`/documents/new?project=${encodeURIComponent(project)}` as never} onClick={closeMobile} aria-label={`在${project}中新建文档`} title="新建文档"><Plus className="size-3.5" /></Link></Button>
         </span>
         </div>
-        {expanded && <div className="ml-[15px] border-l border-border pl-2">{projectDocuments.length === 0 ? <p className="px-2 py-1.5 text-[11px] text-soft">当前项目还没有文档哦</p> : projectDocuments.map((document) => <div
-          draggable
-          onDragStart={(event) => { event.dataTransfer.setData("application/x-seek-document", document.id); event.dataTransfer.effectAllowed = "copyMove"; }}
-          key={document.id}
-          title="拖拽移动；按住 Alt/Option 拖拽复制"
-          className="group/document relative flex h-8 items-center rounded-lg transition-colors hover:bg-accent"
-        >
-          <Button asChild variant="ghost" size="sm" className="h-8 min-w-0 flex-1 justify-start rounded-lg px-2 text-[12px] font-normal text-muted hover:bg-transparent hover:text-ink"><Link onClick={closeMobile} href={`/documents/${encodeURIComponent(document.id)}` as never}><FileText className="size-3.5 shrink-0 text-soft group-hover/document:text-brand-deep" /><span className="truncate">{document.title}</span></Link></Button>
-          <details className="relative mr-3">
-            <Button asChild variant="ghost" size="icon" className={cn(sidebarActionButtonClassName, "list-none opacity-0 group-hover/document:opacity-100 focus:opacity-100")}><summary aria-label={`${document.title}操作`}><MoreHorizontal className="size-3.5" /></summary></Button>
-            <div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-border bg-card p-1.5 shadow-xl">
-              <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("move", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><FolderInput className="size-3.5 text-soft" />移动</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("copy", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><Copy className="size-3.5 text-soft" />复制到</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("properties", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><SlidersHorizontal className="size-3.5 text-soft" />设置文档属性</Button>
-              <div className="my-1 h-px bg-border" />
-              <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("delete", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal text-destructive hover:bg-danger-soft"><Trash2 className="size-3.5" />删除文档</Button>
-            </div>
-          </details>
-        </div>)}</div>}
+        {expanded && <div className="ml-[15px] border-l border-border pl-2">{projectDocuments.length === 0 ? <p className="px-2 py-1.5 text-[11px] text-soft">当前项目还没有文档哦</p> : <DocumentBranches documents={projectDocuments} parentId={null} depth={0} closeMobile={closeMobile} openDialog={openDialog} onDrop={onDrop} />}</div>}
       </div>;
     })}</div>
   </section>;
@@ -408,12 +398,39 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
           <dl className="grid grid-cols-2 gap-3 rounded-xl bg-muted p-3 text-xs"><div><dt className="text-soft">创建时间</dt><dd className="mt-1 text-muted">{new Date(dialog.document.createdAt).toLocaleString("zh-CN")}</dd></div><div><dt className="text-soft">最近更新</dt><dd className="mt-1 text-muted">{new Date(dialog.document.updatedAt).toLocaleString("zh-CN")}</dd></div></dl>
         </div>}
 
-        {dialog.kind === "delete" && <div className="mt-5 flex gap-3 rounded-xl bg-danger-soft p-4 text-destructive"><AlertTriangle className="mt-0.5 size-5 shrink-0" /><div><p className="text-sm font-medium">确定删除这篇文档吗？</p><p className="mt-1 text-xs leading-5 text-destructive">文档内容和版本历史将被永久删除，此操作无法撤销。</p></div></div>}
+        {dialog.kind === "delete" && <div className="mt-5 flex gap-3 rounded-xl bg-danger-soft p-4 text-destructive"><AlertTriangle className="mt-0.5 size-5 shrink-0" /><div><p className="text-sm font-medium">确定删除这篇文档吗？</p><p className="mt-1 text-xs leading-5 text-destructive">文档会移入回收站，可在 30 天内恢复。直接子文档将保留为项目根文档。</p></div></div>}
 
         <div className="mt-6 flex justify-end gap-2"><Button type="button" variant="ghost" disabled={dialogSaving} onClick={() => setDialog(null)} size="sm">取消</Button><Button type="button" autoFocus={dialog.kind !== "properties"} variant={dialog.kind === "delete" ? "destructive" : "default"} disabled={dialogSaving || ((dialog.kind === "move" || dialog.kind === "copy") && !draftProject) || (dialog.kind === "properties" && !draftTitle.trim())} onClick={() => void submitDialog()} size="sm" className={dialog.kind !== "delete" ? "bg-brand-solid text-brand-solid-foreground hover:bg-brand-solid/90" : undefined}>{dialogSaving ? "处理中…" : dialog.kind === "move" ? "移动" : dialog.kind === "copy" ? "创建副本" : dialog.kind === "properties" ? "保存" : "确认删除"}</Button></div>
       </section>
     </div>, document.body)}
   </div>;
+}
+
+function DocumentBranches({ documents, parentId, depth, closeMobile, openDialog, onDrop }: {
+  documents: DocumentSummary[];
+  parentId: string | null;
+  depth: number;
+  closeMobile?: () => void;
+  openDialog: (kind: DocumentDialog["kind"], document: DocumentSummary) => void;
+  onDrop: (event: React.DragEvent, project: string, parentId?: string | null) => void;
+}) {
+  const siblings = documents.filter((document) => document.parentId === parentId).sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt));
+  return <>{siblings.map((document) => <div key={document.id}>
+    <div draggable onDragStart={(event) => { event.dataTransfer.setData("application/x-seek-document", document.id); event.dataTransfer.effectAllowed = "copyMove"; }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = event.altKey ? "copy" : "move"; }} onDrop={(event) => onDrop(event, document.project, document.id)} title="拖到项目可作为根文档；拖到文档可成为子文档；按住 Alt/Option 可复制" className="group/document relative flex h-8 items-center rounded-lg transition-colors hover:bg-accent">
+      <Button asChild variant="ghost" size="sm" className="h-8 min-w-0 flex-1 justify-start rounded-lg px-2 text-[12px] font-normal text-muted hover:bg-transparent hover:text-ink"><Link onClick={closeMobile} href={`/documents/${encodeURIComponent(document.id)}` as never}><FileText className="size-3.5 shrink-0 text-soft group-hover/document:text-brand-deep" /><span className="truncate">{document.title}</span></Link></Button>
+      <details className="relative mr-3">
+        <summary className={cn(sidebarActionButtonClassName, "list-none opacity-0 group-hover/document:opacity-100 focus:opacity-100")} aria-label={`${document.title}操作`}><MoreHorizontal className="size-3.5" /></summary>
+        <div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-border bg-card p-1.5 shadow-xl">
+          <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("move", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><FolderInput className="size-3.5 text-soft" />移动</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("copy", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><Copy className="size-3.5 text-soft" />复制到</Button>
+          <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("properties", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal"><SlidersHorizontal className="size-3.5 text-soft" />设置文档属性</Button>
+          <div className="my-1 h-px bg-border" />
+          <Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); openDialog("delete", document); }} className="h-8 w-full justify-start rounded-lg px-2 text-left text-[12px] font-normal text-destructive hover:bg-danger-soft"><Trash2 className="size-3.5" />删除文档</Button>
+        </div>
+      </details>
+    </div>
+    <div className="ml-3 border-l border-border pl-2"><DocumentBranches documents={documents} parentId={document.id} depth={depth + 1} closeMobile={closeMobile} openDialog={openDialog} onDrop={onDrop} /></div>
+  </div>)}</>;
 }
 
 const pageMeta: Record<Exclude<AppPage, "document">, { label: string; eyebrow: string }> = {
