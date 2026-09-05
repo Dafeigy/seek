@@ -3,23 +3,33 @@ import { NextResponse } from "next/server";
 import { normalizeProject } from "@/lib/documents";
 import { db } from "@/lib/server-db";
 import { getRequestSession } from "@/lib/auth";
+import { permissionService } from "@/lib/permissions";
 
 export async function GET(request: Request) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const rows = await db`
     select name, is_private
     from projects
+    where deleted_at is null
     order by is_private asc, created_at asc, name asc
   `;
-  return NextResponse.json(rows.map((project) => ({
+  const visible = (await Promise.all(rows.map(async (project) => {
+    const permissions = await permissionService.forProject(session, project.name);
+    return permissions["document:read"] ? { project, permissions } : null;
+  }))).filter((item): item is NonNullable<typeof item> => item !== null);
+  return NextResponse.json(visible.map(({ project, permissions }) => ({
     name: project.name,
     isPrivate: project.is_private,
+    canManage: permissions["document:share"],
+    canCreateDocuments: permissions["document:update"],
   })));
 }
 
 export async function POST(request: Request) {
   const session = await getRequestSession(request);
   if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (session.role !== "owner" && session.role !== "admin") return NextResponse.json({ error: "无权创建项目" }, { status: 403 });
   const body = await request.json().catch(() => ({})) as { name?: unknown; isPrivate?: unknown };
   if (typeof body.name !== "string" || !body.name.trim()) {
     return NextResponse.json({ error: "Project name is required" }, { status: 400 });

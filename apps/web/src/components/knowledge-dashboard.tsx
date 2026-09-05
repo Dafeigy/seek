@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle, Bell, ChevronRight, ChevronsUpDown, Clock3, Copy, FileText, Folder, FolderInput,
   FolderLock, HelpCircle, Home, Inbox, Menu, MessageCircle, Mic2,
-  LogOut, MoreHorizontal, PanelLeftClose, Plus, Search, Send, SlidersHorizontal, SquarePen, Trash2, UserRound, Waves, X,
+  LogOut, MoreHorizontal, PanelLeftClose, Plus, Search, Send, SlidersHorizontal, SquarePen, Trash2, UserRound, Users, Waves, X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { SeekCompanion } from "@/components/seek-companion";
 import { collaborationCacheName } from "@/lib/collaboration-cache";
 import { DEFAULT_PROJECT, PRIVATE_PROJECTS, TEAM_PROJECTS, type DocumentSummary, type ProjectSummary } from "@/lib/documents";
 import { clearDocument } from "y-indexeddb";
+import { ProjectManagementDialog } from "@/components/project-management-dialog";
 
 function useDocuments() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -93,6 +94,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
   const [draftProject, setDraftProject] = useState<string>(DEFAULT_PROJECT);
   const [dialogSaving, setDialogSaving] = useState(false);
   const [projectDialog, setProjectDialog] = useState<{ isPrivate: boolean } | null>(null);
+  const [projectManagement, setProjectManagement] = useState<{ kind: "properties" | "members" | "delete"; project: ProjectSummary } | null>(null);
   const [draftProjectName, setDraftProjectName] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -113,15 +115,16 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
   }
 
   useEffect(() => {
-    if (!dialog && !projectDialog) return;
+    if (!dialog && !projectDialog && !projectManagement) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (dialog && !dialogSaving) setDialog(null);
       if (projectDialog && !projectSaving) setProjectDialog(null);
+      if (projectManagement) setProjectManagement(null);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [dialog, dialogSaving, projectDialog, projectSaving]);
+  }, [dialog, dialogSaving, projectDialog, projectManagement, projectSaving]);
 
   function toggleProject(title: string) {
     setExpandedProjects((current) => {
@@ -271,24 +274,45 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
     else run();
   }
 
-  const renderProjectSection = (label: string, sectionProjects: readonly string[], isPrivate = false) => <section aria-labelledby={`sidebar-${label}`}>
+  const projectChanged = (next?: ProjectSummary) => {
+    if (next && projectManagement && next.name !== projectManagement.project.name) {
+      setExpandedProjects((current) => {
+        const updated = new Set(current);
+        if (updated.delete(projectManagement.project.name)) updated.add(next.name);
+        return updated;
+      });
+    }
+    if (projectManagement?.kind === "delete" && documents.some((item) => item.project === projectManagement.project.name && window.location.pathname === `/documents/${encodeURIComponent(item.id)}`)) {
+      router.replace("/" as never);
+    }
+    reloadProjects();
+    reload();
+    window.dispatchEvent(new Event("seek:projects-changed"));
+    window.dispatchEvent(new Event("seek:documents-changed"));
+  };
+
+  const renderProjectSection = (label: string, sectionProjects: readonly ProjectSummary[], isPrivate = false) => <section aria-labelledby={`sidebar-${label}`}>
     <div className="mb-1 mt-5 flex h-8 items-center justify-between px-3 text-[11px] font-medium text-soft">
       <span id={`sidebar-${label}`}>{label}</span>
       <Button type="button" variant="ghost" size="icon" onClick={() => openProjectDialog(isPrivate)} className={sidebarActionButtonClassName} aria-label={`新建${label}`} title="新建项目"><Plus className="size-3.5" /></Button>
     </div>
     <div className="space-y-0.5">{sectionProjects.map((project) => {
-      const projectDocuments = documents.filter((document) => document.project === project);
-      const expanded = expandedProjects.has(project);
-      return <div key={project} onDragEnter={() => setDropTarget(project)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = event.altKey ? "copy" : "move"; }} onDrop={(event) => onDrop(event, project)}>
-        <div className={cn("group/project flex h-9 items-center rounded-lg transition-colors hover:bg-accent", dropTarget === project && "bg-accent ring-1 ring-brand/40")}>
-        <Button variant="ghost" onClick={() => toggleProject(project)} aria-expanded={expanded} className="flex min-w-0 flex-1 justify-start gap-1.5 rounded-lg px-2 text-[13px] text-muted hover:bg-transparent hover:text-ink">
+      const projectDocuments = documents.filter((document) => document.project === project.name);
+      const expanded = expandedProjects.has(project.name);
+      return <div key={project.name} onDragEnter={() => setDropTarget(project.name)} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = event.altKey ? "copy" : "move"; }} onDrop={(event) => onDrop(event, project.name)}>
+        <div className={cn("group/project flex h-9 items-center rounded-lg transition-colors hover:bg-accent", dropTarget === project.name && "bg-accent ring-1 ring-brand/40")}>
+        <Button variant="ghost" onClick={() => toggleProject(project.name)} aria-expanded={expanded} className="flex min-w-0 flex-1 justify-start gap-1.5 rounded-lg px-2 text-[13px] text-muted hover:bg-transparent hover:text-ink">
           <ChevronRight className={cn("size-3.5 shrink-0 text-soft transition-transform duration-200", expanded && "rotate-90")} />
           {isPrivate ? <FolderLock className="size-3.5 shrink-0 text-soft group-hover/project:text-brand-deep" /> : <Folder className="size-3.5 shrink-0 text-soft group-hover/project:text-brand-deep" />}
-          <span className="min-w-0 flex-1 truncate text-left">{project}</span>
+          <span className="min-w-0 flex-1 truncate text-left">{project.name}</span>
         </Button>
-        <span className="relative mr-3 size-7 shrink-0">
+        <span className="relative mr-3 flex size-7 shrink-0 items-center justify-center">
           <span aria-label={`${projectDocuments.length} 篇文档`} className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] text-soft transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">{projectDocuments.length}</span>
-          <Button asChild variant="ghost" size="icon" className={cn(sidebarActionButtonClassName, "absolute inset-0 opacity-0 transition-opacity group-hover/project:opacity-100 focus:opacity-100")}><Link href={`/documents/new?project=${encodeURIComponent(project)}` as never} onClick={closeMobile} aria-label={`在${project}中新建文档`} title="新建文档"><Plus className="size-3.5" /></Link></Button>
+          <details className="absolute inset-0 opacity-0 transition-opacity group-hover/project:opacity-100 focus-within:opacity-100"><summary className={cn(sidebarActionButtonClassName, "list-none")} aria-label={`${project.name}更多操作`}><MoreHorizontal className="size-3.5" /></summary><div className="absolute right-0 top-7 z-50 w-44 rounded-xl border border-border bg-card p-1.5 shadow-xl">
+            {project.canManage && <><Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setProjectManagement({ kind: "properties", project }); }} className="h-8 w-full justify-start px-2 text-xs font-normal"><SlidersHorizontal className="size-3.5 text-soft" />项目属性</Button><Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setProjectManagement({ kind: "members", project }); }} className="h-8 w-full justify-start px-2 text-xs font-normal"><Users className="size-3.5 text-soft" />项目成员管理</Button></>}
+            {project.canCreateDocuments && <Button asChild variant="ghost" size="sm" className="h-8 w-full justify-start px-2 text-xs font-normal"><Link href={`/documents/new?project=${encodeURIComponent(project.name)}` as never} onClick={closeMobile}><SquarePen className="size-3.5 text-soft" />新建文档</Link></Button>}
+            {project.canManage && <><div className="my-1 h-px bg-border" /><Button type="button" variant="ghost" size="sm" onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setProjectManagement({ kind: "delete", project }); }} className="h-8 w-full justify-start px-2 text-xs font-normal text-destructive hover:bg-danger-soft"><Trash2 className="size-3.5" />删除项目</Button></>}
+          </div></details>
         </span>
         </div>
         {expanded && <div className="ml-[15px] border-l border-border pl-2">{projectDocuments.length === 0 ? <p className="px-2 py-1.5 text-[11px] text-soft">当前项目还没有文档哦</p> : <DocumentBranches documents={projectDocuments} parentId={null} depth={0} closeMobile={closeMobile} openDialog={openDialog} onDrop={onDrop} />}</div>}
@@ -345,8 +369,8 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
           <div className="mb-1 mt-5 flex h-8 items-center justify-between px-3 text-[11px] font-medium text-soft"><span id="sidebar-conversations">最近对话</span><Button type="button" variant="ghost" size="icon" className={sidebarActionButtonClassName} aria-label="新建对话"><SquarePen className="size-3.5" /></Button></div>
           <div className="space-y-0.5">{["Q3 产品路线图讨论", "整理设计系统的更新", "新员工入职资料", "分析本周项目进展"].map((conversation, index) => <Button key={conversation} type="button" variant={index === 0 ? "secondary" : "ghost"} className="h-auto min-h-9 w-full justify-start rounded-lg px-3 text-left text-[12px] font-normal"><MessageCircle className="mr-2 size-3.5 shrink-0 text-soft" /><span className="truncate">{conversation}</span></Button>)}</div>
         </section> : <>
-          {renderProjectSection("项目", projects.filter((project) => !project.isPrivate).map((project) => project.name))}
-          {renderProjectSection("私人项目", projects.filter((project) => project.isPrivate).map((project) => project.name), true)}
+          {renderProjectSection("项目", projects.filter((project) => !project.isPrivate))}
+          {renderProjectSection("私人项目", projects.filter((project) => project.isPrivate), true)}
         </>}
         </div>
       </>}
@@ -372,6 +396,7 @@ export function SidebarContent({ compact, closeMobile, currentPage = "home" }: {
         <div className="mt-6 flex justify-end gap-2"><Button type="button" variant="ghost" disabled={projectSaving} onClick={() => setProjectDialog(null)} size="sm">取消</Button><Button type="submit" disabled={projectSaving || !draftProjectName.trim()} size="sm" className="bg-brand-solid text-brand-solid-foreground hover:bg-brand-solid/90">{projectSaving ? "创建中…" : "创建"}</Button></div>
       </form>
     </div>, document.body)}
+    {projectManagement && createPortal(<ProjectManagementDialog kind={projectManagement.kind} project={projectManagement.project} onClose={() => setProjectManagement(null)} onChanged={projectChanged} />, document.body)}
     {dialog && createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="presentation">
       <Button type="button" variant="ghost" className="absolute inset-0 h-auto w-auto cursor-default rounded-none bg-black/25 p-0 backdrop-blur-[2px] hover:bg-black/25" onClick={() => { if (!dialogSaving) setDialog(null); }} aria-label="关闭对话框" />
       <section role="dialog" aria-modal="true" aria-labelledby="document-dialog-title" className="relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl">

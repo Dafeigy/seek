@@ -8,6 +8,8 @@ export const DEFAULT_PROJECT = TEAM_PROJECTS[0];
 export type ProjectSummary = {
   name: string;
   isPrivate: boolean;
+  canManage?: boolean;
+  canCreateDocuments?: boolean;
 };
 
 export type DocumentSummary = {
@@ -31,6 +33,7 @@ export type DocumentBootstrap = {
   contentVersion: number;
   updatedAt: string;
   collaborationCacheScope?: string;
+  canUpdate?: boolean;
 };
 
 export function normalizeTitle(value: unknown, fallback = "未命名文档") {

@@ -3,11 +3,27 @@ import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
 import { performance } from "node:perf_hooks";
 import postgres from "postgres";
 import * as Y from "yjs";
-import { createServerBlockNoteEditor } from "./content-schema.js";
+import { resolveDocumentPermissions, verifyCollaborationToken, type ProjectRole, type WorkspaceRole } from "@seek/permissions";
+import { createServerBlockNoteEditor, ensureDocumentHasBlock } from "./content-schema.js";
 
 const sql = postgres(process.env.DATABASE_URL ?? "postgresql://seek:seek_dev_password@127.0.0.1:5432/seek");
 const port = Number(process.env.COLLABORATION_PORT ?? 1234);
 const blockNote = createServerBlockNoteEditor();
+const collaborationTokenSecret = process.env.COLLABORATION_TOKEN_SECRET
+  ?? (process.env.NODE_ENV === "production" ? "" : "seek-development-collaboration-secret-change-me");
+
+type CollaborationContext = {
+  userId: string;
+  displayName: string;
+  workspaceId: string;
+  canUpdate: boolean;
+};
+
+type LeaseMessage = {
+  type?: string;
+  requestId?: string;
+  blockId?: string;
+};
 
 type LogLevel = "info" | "warn" | "error";
 
@@ -88,7 +104,17 @@ async function loadOrMigrateDocument(documentName: string) {
     if (row.ydoc_state) {
       const document = new Y.Doc();
       Y.applyUpdate(document, new Uint8Array(row.ydoc_state as unknown as Buffer));
-      return { document, migrated: false };
+      if (!ensureDocumentHasBlock(blockNote, document)) return { document, migrated: false };
+
+      // Older empty Y.Doc states contain no BlockNote block at all. Seed one
+      // paragraph so the user has a concrete block to click and lease.
+      const state = Buffer.from(Y.encodeStateAsUpdate(document));
+      await tx`
+        update documents
+        set ydoc_state = ${state}, ydoc_initialized_at = coalesce(ydoc_initialized_at, now())
+        where id = ${documentName}
+      `;
+      return { document, migrated: true };
     }
 
     const sourceBlocks = Array.isArray(row.block_json) && row.block_json.length
@@ -105,6 +131,126 @@ async function loadOrMigrateDocument(documentName: string) {
     `;
     return { document, migrated: true };
   });
+}
+
+async function currentDocumentPermissions(documentId: string, userId: string, workspaceId: string) {
+  const [membership] = await sql`
+    select wm.role as workspace_role, pm.role as project_role
+    from documents d
+    join workspace_members wm on wm.workspace_id = ${workspaceId} and wm.user_id = ${userId}
+    left join project_members pm on pm.project_name = d.project and pm.user_id = ${userId}
+    where d.id = ${documentId} and d.deleted_at is null
+  `;
+  if (!membership) return null;
+  const aclRules = await sql`
+    with recursive ancestors as (
+      select id, parent_id, 0 as depth from documents where id = ${documentId}
+      union all
+      select parent.id, parent.parent_id, ancestors.depth + 1
+      from documents parent join ancestors on ancestors.parent_id = parent.id
+    )
+    select acl.action, acl.effect, ancestors.depth
+    from ancestors join document_acl acl on acl.document_id = ancestors.id
+    where acl.user_id = ${userId}
+    order by ancestors.depth asc
+  `;
+  return resolveDocumentPermissions({
+    workspaceRole: membership.workspace_role as WorkspaceRole,
+    projectRole: (membership.project_role as ProjectRole | null) ?? null,
+    aclRules: aclRules.map((rule) => ({ action: rule.action, effect: rule.effect, depth: Number(rule.depth) })),
+  });
+}
+
+async function broadcastLeases(documentName: string, document?: { awareness: { setLocalStateField: (field: string, value: unknown) => void } }) {
+  if (!document) return;
+  const leases = await sql`
+    select leases.block_id, leases.user_id, users.display_name, leases.acquired_at, leases.active_at, leases.expires_at
+    from document_block_leases leases join users on users.id = leases.user_id
+    where leases.document_id = ${documentName} and leases.expires_at > now()
+    order by leases.acquired_at asc
+  `;
+  document.awareness.setLocalStateField("blockLeases", leases.map((lease) => ({
+    blockId: lease.block_id,
+    userId: lease.user_id,
+    displayName: lease.display_name,
+    acquiredAt: new Date(lease.acquired_at).toISOString(),
+    activeAt: new Date(lease.active_at).toISOString(),
+    expiresAt: new Date(lease.expires_at).toISOString(),
+  })));
+}
+
+async function handleLeaseMessage(input: {
+  documentName: string;
+  document: { awareness: { setLocalStateField: (field: string, value: unknown) => void } };
+  connection: { context: CollaborationContext; socketId: string; sendStateless: (payload: string) => void };
+  payload: string;
+}) {
+  let message: LeaseMessage;
+  try {
+    message = JSON.parse(input.payload) as LeaseMessage;
+  } catch {
+    return;
+  }
+  if (!message.type?.startsWith("lease.") || typeof message.blockId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(message.blockId)) return;
+  const context = input.connection.context;
+  const reply = (granted: boolean, holderUserId?: string, holderDisplayName?: string) => input.connection.sendStateless(JSON.stringify({
+    type: "lease.result",
+    requestId: message.requestId,
+    blockId: message.blockId,
+    granted,
+    holderUserId,
+    holderDisplayName,
+  }));
+
+  if (!context.canUpdate) {
+    reply(false);
+    return;
+  }
+
+  if (message.type === "lease.acquire") {
+    const rows = await sql.begin(async (tx) => {
+      await tx`delete from document_block_leases where document_id = ${input.documentName} and block_id = ${message.blockId!} and expires_at <= now()`;
+      await tx`
+        insert into document_block_leases (document_id, block_id, user_id, connection_id)
+        values (${input.documentName}, ${message.blockId!}, ${context.userId}, ${input.connection.socketId})
+        on conflict (document_id, block_id) do nothing
+      `;
+      return tx`
+        select leases.user_id, leases.connection_id, users.display_name
+        from document_block_leases leases join users on users.id = leases.user_id
+        where leases.document_id = ${input.documentName} and leases.block_id = ${message.blockId!} and leases.expires_at > now()
+      `;
+    });
+    const lease = rows[0];
+    const granted = lease?.user_id === context.userId && lease?.connection_id === input.connection.socketId;
+    reply(granted, lease?.user_id, lease?.display_name);
+    await broadcastLeases(input.documentName, input.document);
+    return;
+  }
+
+  if (message.type === "lease.activity") {
+    const [lease] = await sql`
+      update document_block_leases
+      set active_at = now(), expires_at = now() + interval '60 seconds'
+      where document_id = ${input.documentName} and block_id = ${message.blockId}
+        and user_id = ${context.userId} and connection_id = ${input.connection.socketId} and expires_at > now()
+      returning user_id
+    `;
+    reply(Boolean(lease), lease?.user_id);
+    if (lease) await broadcastLeases(input.documentName, input.document);
+    return;
+  }
+
+  if (message.type === "lease.release") {
+    const [lease] = await sql`
+      delete from document_block_leases
+      where document_id = ${input.documentName} and block_id = ${message.blockId}
+        and user_id = ${context.userId} and connection_id = ${input.connection.socketId}
+      returning user_id
+    `;
+    reply(Boolean(lease));
+    if (lease) await broadcastLeases(input.documentName, input.document);
+  }
 }
 
 const server = new Server({
@@ -160,6 +306,9 @@ const server = new Server({
     });
     return loaded.document;
   },
+  async afterLoadDocument({ documentName, document }) {
+    await broadcastLeases(documentName, document);
+  },
   async onStoreDocument({ documentName, document, socketId }) {
     const startedAt = performance.now();
     const state = Buffer.from(Y.encodeStateAsUpdate(document));
@@ -213,42 +362,65 @@ const server = new Server({
       durationMs: Math.round(performance.now() - startedAt),
     });
   },
-  async onAuthenticate({ documentName, socketId, token }) {
+  async onAuthenticate({ documentName, socketId, token, connectionConfig }) {
     const startedAt = performance.now();
-    if (token !== "demo-editor") {
+    const claims = verifyCollaborationToken(token, collaborationTokenSecret);
+    if (!claims || claims.documentId !== documentName) {
       log("warn", "authentication_rejected", {
         socketId,
         documentId: documentName,
-        reason: "invalid_demo_token",
+        reason: "invalid_or_expired_token",
         durationMs: Math.round(performance.now() - startedAt),
       });
       throw connectionError(4401, "Authentication failed");
     }
 
-    const [document] = await sql`select id from documents where id = ${documentName} and deleted_at is null`;
-    if (!document) {
+    const permissions = await currentDocumentPermissions(documentName, claims.userId, claims.workspaceId);
+    if (!permissions?.["document:read"]) {
       log("warn", "authentication_rejected", {
         socketId,
         documentId: documentName,
-        reason: "document_not_found",
+        reason: "document_not_found_or_forbidden",
         durationMs: Math.round(performance.now() - startedAt),
       });
       throw connectionError(4404, "Document not found");
     }
 
+    connectionConfig.readOnly = !permissions["document:update"];
+    const context: CollaborationContext = {
+      userId: claims.userId,
+      displayName: claims.displayName,
+      workspaceId: claims.workspaceId,
+      canUpdate: permissions["document:update"],
+    };
     log("info", "document_authenticated", {
       socketId,
       documentId: documentName,
-      userId: "demo-editor",
-      role: "editor",
+      userId: claims.userId,
+      readOnly: connectionConfig.readOnly,
       durationMs: Math.round(performance.now() - startedAt),
     });
-    return { userId: "demo-editor", role: "editor" };
+    return context;
   },
-  async onDisconnect({ documentName, socketId }) {
+  async onStateless({ documentName, document, connection, payload }) {
+    await handleLeaseMessage({ documentName, document, connection: connection as never, payload });
+  },
+  async onDisconnect({ documentName, document, socketId }) {
+    await sql`delete from document_block_leases where connection_id = ${socketId}`;
+    await broadcastLeases(documentName, document);
     log("info", "websocket_disconnected", { documentId: documentName, socketId });
   },
 });
+
+const leaseExpiryTimer = setInterval(() => {
+  void sql`delete from document_block_leases where expires_at <= now() returning document_id`.then((expired) => {
+    for (const documentId of new Set(expired.map((row) => String(row.document_id)))) {
+      const document = server.hocuspocus.documents.get(documentId);
+      if (document) void broadcastLeases(documentId, document);
+    }
+  }).catch((error) => log("error", "lease_expiry_failed", { error: error instanceof Error ? error.message : "Unknown error" }));
+}, 5_000);
+leaseExpiryTimer.unref();
 
 let shuttingDown = false;
 async function shutdown(signal: string) {
@@ -256,6 +428,7 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   log("info", "server_stopping", { signal });
   try {
+    clearInterval(leaseExpiryTimer);
     await server.destroy();
     await sql.end({ timeout: 10 });
     log("info", "server_stopped", { signal });

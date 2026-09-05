@@ -225,6 +225,12 @@ input {
 .scrollbar-none { scrollbar-width: none; }
 .scrollbar-none::-webkit-scrollbar { display: none; }
 
+/* Let the document editor read as part of the page, like Notion's open canvas. */
+.seek-editor .bn-editor {
+  background-color: transparent;
+  border-radius: 0;
+}
+
 /* Keep route changes calm: the logo stays mounted while content layers cross-fade. */
 .page-content-transition,
 .sidebar-content-transition {

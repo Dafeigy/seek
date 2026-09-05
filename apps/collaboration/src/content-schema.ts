@@ -5,6 +5,8 @@ import {
   createBlockSpec,
   createInlineContentSpec,
 } from "@blocknote/core";
+import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
+import * as Y from "yjs";
 
 const mathBlockConfig = createBlockConfig(
   () => ({
@@ -52,4 +54,11 @@ export function createServerBlockNoteEditor() {
       inlineContentSpecs: { math: serverInlineMathSpec },
     }),
   });
+}
+
+export function ensureDocumentHasBlock(editor: ReturnType<typeof createServerBlockNoteEditor>, document: Y.Doc) {
+  if (yDocToBlocks(editor, document, "document-store").length > 0) return false;
+  const initialized = blocksToYDoc(editor, [{ type: "paragraph", content: "" }] as never, "document-store");
+  Y.applyUpdate(document, Y.encodeStateAsUpdate(initialized));
+  return true;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, History, Menu, MoreHorizontal, PanelLeftClose, Pencil, Share2, X } from "lucide-react";
 
 import { SidebarContent } from "@/components/knowledge-dashboard";
@@ -12,10 +12,11 @@ type Props = {
   documentId: string;
   title: string;
   project?: string;
+  canUpdate?: boolean;
   children: ReactNode;
 };
 
-export function DocumentWorkspace({ documentId, title: initialTitle, project: initialProject = "平台基础设施", children }: Props) {
+export function DocumentWorkspace({ documentId, title: initialTitle, project: initialProject = "平台基础设施", canUpdate = false, children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
@@ -23,6 +24,16 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
   const [editingTitle, setEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(initialTitle);
   const [titleStatus, setTitleStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [collaboration, setCollaboration] = useState({ label: "协作连接中", connected: false });
+
+  useEffect(() => {
+    const onCollaborationStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId: string; label: string; connected: boolean }>).detail;
+      if (detail?.documentId === documentId) setCollaboration({ label: detail.label, connected: detail.connected });
+    };
+    window.addEventListener("seek:collaboration-status", onCollaborationStatus);
+    return () => window.removeEventListener("seek:collaboration-status", onCollaborationStatus);
+  }, [documentId]);
 
   async function commitTitle() {
     const nextTitle = draftTitle.trim() || "未命名文档";
@@ -90,7 +101,7 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="mb-5 flex items-center justify-between gap-4">
           <div className="min-w-0 flex-1"><p className="text-sm text-muted">最后编辑：你 · 自动保存</p>
-            {editingTitle ? <input
+            {editingTitle && canUpdate ? <input
               autoFocus
               value={draftTitle}
               onChange={(event) => setDraftTitle(event.target.value)}
@@ -101,12 +112,15 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
               }}
               aria-label="文档标题"
               className="mt-1 w-full rounded-lg border border-brand/40 bg-card px-2 py-1 text-2xl font-semibold tracking-tight outline-none ring-2 ring-brand/10"
-            /> : <Button type="button" variant="ghost" onClick={() => setEditingTitle(true)} className="group mt-1 h-auto max-w-full justify-start p-0 text-left hover:bg-transparent" title="点击重命名">
+            /> : <Button type="button" variant="ghost" disabled={!canUpdate} onClick={() => setEditingTitle(true)} className="group mt-1 h-auto max-w-full justify-start p-0 text-left hover:bg-transparent disabled:opacity-100" title={canUpdate ? "点击重命名" : "只读文档"}>
               <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1><Pencil className="size-4 shrink-0 text-soft opacity-0 transition-opacity group-hover:opacity-100" />
             </Button>}
             {titleStatus !== "idle" && <p role="status" className={cn("mt-1 text-xs", titleStatus === "error" ? "text-destructive" : "text-soft")}>{titleStatus === "saving" ? "正在保存标题…" : titleStatus === "saved" ? <span className="inline-flex items-center gap-1"><Check className="size-3" />标题已保存</span> : "标题保存失败，请重试"}</p>}
           </div>
-          <div className="shrink-0 rounded-full bg-success-soft px-3 py-1 text-xs font-medium text-success-foreground">Editor</div>
+          <div className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", collaboration.connected ? "bg-success-soft text-success-foreground" : "bg-muted text-muted-foreground")} title={canUpdate ? "Editor" : "Viewer"}>
+            <span className={cn("size-1.5 rounded-full", collaboration.connected ? "bg-success-foreground" : "bg-muted-foreground")} />
+            {collaboration.label}
+          </div>
         </div>
         {children}
       </section>

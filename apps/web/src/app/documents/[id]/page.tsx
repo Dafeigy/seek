@@ -4,6 +4,7 @@ import { db } from "@/lib/server-db";
 import type { DocumentBootstrap } from "@/lib/documents";
 import { notFound } from "next/navigation";
 import { getCurrentSession } from "@/lib/auth";
+import { permissionService } from "@/lib/permissions";
 import { redirect } from "next/navigation";
 
 export default async function DocumentPage({
@@ -14,6 +15,8 @@ export default async function DocumentPage({
   const session = await getCurrentSession();
   if (!session) redirect("/login");
   const { id } = await params;
+  const access = await permissionService.allows(session, id, "document:read");
+  if (!access) notFound();
   const [row] = await db`
     select id, title, project, block_json, markdown, plain_text, content_version, updated_at
     from documents
@@ -31,9 +34,10 @@ export default async function DocumentPage({
     contentVersion: Number(row.content_version),
     updatedAt: new Date(row.updated_at).toISOString(),
     collaborationCacheScope: `${session.workspaceId}:${session.userId}`,
+    canUpdate: access.permissions["document:update"],
   };
 
-  return <DocumentWorkspace documentId={id} title={bootstrap.title} project={bootstrap.project}>
+  return <DocumentWorkspace documentId={id} title={bootstrap.title} project={bootstrap.project} canUpdate={bootstrap.canUpdate}>
     <SeekEditor bootstrap={bootstrap} />
   </DocumentWorkspace>;
 }

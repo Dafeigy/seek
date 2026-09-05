@@ -4,16 +4,21 @@ import { createDocumentId, normalizeProject, normalizeTitle } from "@/lib/docume
 import { nextSortOrder } from "@/lib/document-tree";
 import { db } from "@/lib/server-db";
 import { getRequestSession } from "@/lib/auth";
+import { permissionService } from "@/lib/permissions";
 
 export async function GET(request: Request) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const rows = await db`
     select id, title, project, parent_id, sort_order, updated_at, created_at
     from documents
     where deleted_at is null
     order by updated_at desc, created_at desc
   `;
-  return NextResponse.json(rows.map((document) => ({
+  const visible = (await Promise.all(rows.map(async (document) =>
+    (await permissionService.allows(session, document.id, "document:read")) ? document : null
+  ))).filter((document): document is NonNullable<typeof document> => document !== null);
+  return NextResponse.json(visible.map((document) => ({
     id: document.id,
     title: document.title,
     project: document.project,
@@ -25,19 +30,26 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { project?: unknown; parentId?: unknown; sourceDocumentId?: unknown };
   const project = normalizeProject(body.project);
   const id = createDocumentId();
+  const [targetProject] = await db`select 1 from projects where name = ${project} and deleted_at is null`;
+  if (!targetProject) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  const targetPermissions = await permissionService.forProject(session, project);
+  if (!targetPermissions["document:update"]) return NextResponse.json({ error: "无权在该项目创建文档" }, { status: 403 });
 
   const parentId = typeof body.parentId === "string" ? body.parentId : null;
   if (parentId) {
-    const [parent] = await db`select id from documents where id = ${parentId} and project = ${project} and deleted_at is null`;
+    const parentAccess = await permissionService.allows(session, parentId, "document:update");
+    const [parent] = parentAccess ? await db`select id from documents where id = ${parentId} and project = ${project} and deleted_at is null` : [];
     if (!parent) return NextResponse.json({ error: "Parent document not found in project" }, { status: 400 });
   }
 
   if (typeof body.sourceDocumentId === "string") {
-    const [source] = await db`select id, title, project from documents where id = ${body.sourceDocumentId} and deleted_at is null`;
+    const sourceAccess = await permissionService.allows(session, body.sourceDocumentId, "document:read");
+    const [source] = sourceAccess ? await db`select id, title, project from documents where id = ${body.sourceDocumentId} and deleted_at is null` : [];
     if (!source) return NextResponse.json({ error: "Document not found" }, { status: 404 });
     const [document] = await db.begin(async (tx) => {
       const sourceTree = await tx`

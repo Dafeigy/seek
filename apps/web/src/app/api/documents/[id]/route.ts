@@ -3,10 +3,13 @@ import { db } from "@/lib/server-db";
 import { normalizeProject, normalizeTitle } from "@/lib/documents";
 import { isValidParent, nextSortOrder } from "@/lib/document-tree";
 import { getRequestSession } from "@/lib/auth";
+import { permissionService } from "@/lib/permissions";
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
+  if (!(await permissionService.allows(session, id, "document:read"))) return NextResponse.json({ error: "Document not found" }, { status: 404 });
   const [document] = await db`select id, title, project, parent_id, sort_order, block_json, markdown, plain_text, content_version, updated_at from documents where id = ${id} and deleted_at is null`;
   return document ? NextResponse.json({
     id: document.id,
@@ -23,19 +26,23 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 }
 
 export async function POST(request: Request) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   return NextResponse.json({
     error: "Whole-document saves are disabled; update the realtime Y.Doc instead",
   }, { status: 409 });
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
   const body = await request.json().catch(() => ({})) as { title?: unknown; project?: unknown; parentId?: unknown; sortOrder?: unknown };
   if (body.title === undefined && body.project === undefined && body.parentId === undefined && body.sortOrder === undefined) {
     return NextResponse.json({ error: "No document changes supplied" }, { status: 400 });
   }
+  const requiredAction = body.parentId !== undefined || body.project !== undefined || body.sortOrder !== undefined ? "document:move" : "document:update";
+  if (!(await permissionService.allows(session, id, requiredAction))) return NextResponse.json({ error: "无权修改该文档" }, { status: 403 });
 
   const [current] = await db`select title, project, parent_id, sort_order from documents where id = ${id} and deleted_at is null`;
   if (!current) return NextResponse.json({ error: "Document not found" }, { status: 404 });
@@ -51,7 +58,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "A document cannot be moved below itself or a descendant" }, { status: 400 });
   }
   if (requestedParentId) {
-    const [parent] = await db`select id from documents where id = ${requestedParentId} and project = ${project} and deleted_at is null`;
+    const parentAccess = await permissionService.allows(session, requestedParentId, "document:read");
+    const [parent] = parentAccess ? await db`select id from documents where id = ${requestedParentId} and project = ${project} and deleted_at is null` : [];
     if (!parent) return NextResponse.json({ error: "Parent document not found in project" }, { status: 400 });
   }
   const sortOrder = typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)
@@ -66,8 +74,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
+  if (!(await permissionService.allows(session, id, "document:delete"))) return NextResponse.json({ error: "无权删除该文档" }, { status: 403 });
   const [document] = await db.begin(async (tx) => {
     await tx`update documents set parent_id = null, updated_at = now() where parent_id = ${id} and deleted_at is null`;
     return tx`update documents set deleted_at = now(), updated_at = now() where id = ${id} and deleted_at is null returning id`;

@@ -7,3 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## Database changes
+
+When changing database schema—adding, removing, or altering tables, columns, indexes, constraints, or seed-dependent data—include the corresponding idempotent migration or initialization work in the same implementation. Apply it to the local development database and verify the affected path before handing off; do not leave schema migration as a separate follow-up step.

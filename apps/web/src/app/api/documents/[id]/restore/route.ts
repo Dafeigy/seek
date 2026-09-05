@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 
 import { getRequestSession } from "@/lib/auth";
 import { db } from "@/lib/server-db";
+import { permissionService } from "@/lib/permissions";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await getRequestSession(request))) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id } = await params;
+  if (!(await permissionService.allows(session, id, "document:restore", true))) return NextResponse.json({ error: "无权恢复该文档" }, { status: 403 });
   const [document] = await db`
     update documents
     set deleted_at = null, updated_at = now()

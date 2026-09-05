@@ -57,9 +57,14 @@ await sql`create index if not exists workspace_invitations_token_digest_idx on w
 await sql`
   create table if not exists projects (
     name text primary key, is_private boolean not null default false,
+    deleted_at timestamptz, updated_at timestamptz not null default now(),
     created_at timestamptz not null default now()
   )
 `;
+await sql`alter table projects add column if not exists deleted_at timestamptz`;
+await sql`alter table projects add column if not exists updated_at timestamptz not null default now()`;
+await sql`alter table workspace_invitations add column if not exists project_name text`;
+await sql`alter table workspace_invitations add column if not exists project_role text`;
 await sql`
   insert into projects (name, is_private)
   values ('平台基础设施', false), ('算法研究', false), ('客户端', false), ('个人工作台', true)
@@ -100,7 +105,38 @@ await sql`
     primary key (project_name, user_id)
   )
 `;
+await sql`alter table project_members drop constraint if exists project_members_project_name_fkey`;
+await sql`alter table project_members add constraint project_members_project_name_fkey foreign key (project_name) references projects(name) on update cascade on delete cascade`;
 await sql`create index if not exists project_members_user_idx on project_members (user_id, project_name)`;
+await sql`
+  create table if not exists document_acl (
+    document_id text not null references documents(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    action text not null check (action in (
+      'document:read', 'document:comment', 'document:update', 'document:publish',
+      'document:share', 'document:move', 'document:delete', 'document:restore', 'document:history'
+    )),
+    effect text not null check (effect in ('allow', 'deny')),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    primary key (document_id, user_id, action)
+  )
+`;
+await sql`create index if not exists document_acl_user_idx on document_acl (user_id, document_id)`;
+await sql`
+  create table if not exists document_block_leases (
+    document_id text not null references documents(id) on delete cascade,
+    block_id text not null,
+    user_id text not null references users(id) on delete cascade,
+    connection_id text not null,
+    acquired_at timestamptz not null default now(),
+    active_at timestamptz not null default now(),
+    expires_at timestamptz not null default (now() + interval '60 seconds'),
+    primary key (document_id, block_id)
+  )
+`;
+await sql`create index if not exists document_block_leases_connection_idx on document_block_leases (connection_id)`;
+await sql`create index if not exists document_block_leases_expiry_idx on document_block_leases (expires_at)`;
 await sql`alter table documents add column if not exists ydoc_initialized_at timestamptz`;
 await sql`alter table documents add column if not exists projected_at timestamptz`;
 await sql`alter table documents add column if not exists deleted_at timestamptz`;

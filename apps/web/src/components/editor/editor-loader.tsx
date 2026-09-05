@@ -9,7 +9,7 @@ const SeekEditor = dynamic(
     ssr: false,
     loading: () => (
       <div
-        className="h-[680px] animate-pulse rounded-2xl border border-border bg-card"
+        className="h-[680px]"
         aria-label="正在加载编辑器"
       />
     ),

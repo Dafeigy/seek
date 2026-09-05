@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
+import { getRequestSession } from "@/lib/auth";
+import { permissionService } from "@/lib/permissions";
 import { db } from "@/lib/server-db";
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string; version: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string; version: string }> }) {
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id, version } = await params;
+  if (!(await permissionService.allows(session, id, "document:update"))) return NextResponse.json({ error: "无权恢复该版本" }, { status: 403 });
   const [source] = await db`select block_json, markdown from document_versions where document_id = ${id} and version = ${Number(version)}`;
   const [current] = await db`select content_version from documents where id = ${id}`;
   if (!source || !current) return NextResponse.json({ error: "Version not found" }, { status: 404 });

@@ -162,15 +162,15 @@ export async function hasInitialOwner() {
   return row?.exists === true;
 }
 
-export async function createInvitation(input: { email: unknown; role: unknown; invitedBy: AuthSession }) {
+export async function createInvitation(input: { email: unknown; role: unknown; invitedBy: AuthSession; projectName?: string; projectRole?: string }) {
   const email = normalizeEmail(input.email);
   const role = input.role;
   if (!email || !["admin", "member", "guest"].includes(String(role))) throw new Error("请输入有效邮箱并选择成员角色");
   const token = randomBytes(32).toString("base64url");
   const invitationId = randomUUID();
   await db`
-    insert into workspace_invitations (id, workspace_id, email, role, token_digest, invited_by_user_id, expires_at)
-    values (${invitationId}, ${input.invitedBy.workspaceId}, ${email}, ${String(role)}, ${digest(token)}, ${input.invitedBy.userId}, now() + interval '7 days')
+    insert into workspace_invitations (id, workspace_id, email, role, token_digest, invited_by_user_id, expires_at, project_name, project_role)
+    values (${invitationId}, ${input.invitedBy.workspaceId}, ${email}, ${String(role)}, ${digest(token)}, ${input.invitedBy.userId}, now() + interval '7 days', ${input.projectName ?? null}, ${input.projectRole ?? null})
   `;
   return { email, token, expiresInDays: 7 };
 }
@@ -185,7 +185,7 @@ export async function acceptInvitation(input: { token: unknown; password: unknow
   let userId = "";
   await db.begin(async (tx) => {
     const [invite] = await tx`
-      select id, workspace_id, email, role from workspace_invitations
+      select id, workspace_id, email, role, project_name, project_role from workspace_invitations
       where token_digest = ${digest(invitationToken)} and accepted_at is null and expires_at > now()
       for update
     `;
@@ -201,6 +201,13 @@ export async function acceptInvitation(input: { token: unknown; password: unknow
       insert into workspace_members (workspace_id, user_id, role) values (${invite.workspace_id}, ${userId}, ${invite.role})
       on conflict (workspace_id, user_id) do update set role = excluded.role
     `;
+    if (invite.project_name && ["admin", "editor", "commenter", "viewer"].includes(invite.project_role)) {
+      await tx`
+        insert into project_members (project_name, user_id, role)
+        values (${invite.project_name}, ${userId}, ${invite.project_role})
+        on conflict (project_name, user_id) do update set role = excluded.role
+      `;
+    }
     await tx`update workspace_invitations set accepted_at = now() where id = ${invite.id}`;
   });
   return createSession(userId);
