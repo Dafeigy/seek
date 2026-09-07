@@ -33,6 +33,7 @@ export type DocumentBootstrap = {
   contentVersion: number;
   updatedAt: string;
   collaborationCacheScope?: string;
+  currentUser?: { id: string; displayName: string };
   canUpdate?: boolean;
 };
 

@@ -1,31 +1,15 @@
 import { NextResponse } from "next/server";
 import { getRequestSession } from "@/lib/auth";
 import { permissionService } from "@/lib/permissions";
-import { db } from "@/lib/server-db";
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; version: string }> }) {
   const session = await getRequestSession(request);
   if (!session) return NextResponse.json({ error: "未登录" }, { status: 401 });
   const { id, version } = await params;
-  if (!(await permissionService.allows(session, id, "document:update"))) return NextResponse.json({ error: "无权恢复该版本" }, { status: 403 });
-  const [source] = await db`select block_json, markdown from document_versions where document_id = ${id} and version = ${Number(version)}`;
-  const [current] = await db`select content_version from documents where id = ${id}`;
-  if (!source || !current) return NextResponse.json({ error: "Version not found" }, { status: 404 });
-  const nextVersion = Number(current.content_version) + 1;
-  const plainText = String(source.markdown).replace(/[#>*_`\[\]-]/g, "").replace(/\n{2,}/g, "\n").trim();
-  await db.begin(async (tx) => {
-    await tx`update documents set block_json = ${tx.json(source.block_json)}, markdown = ${source.markdown}, plain_text = ${plainText}, content_version = ${nextVersion}, updated_at = now() where id = ${id}`;
-    await tx`insert into document_versions (document_id, version, block_json, markdown, reason) values (${id}, ${nextVersion}, ${tx.json(source.block_json)}, ${source.markdown}, ${"restore:" + version})`;
-    await tx`
-      delete from document_versions
-      where document_id = ${id}
-        and id not in (
-          select id from document_versions
-          where document_id = ${id}
-          order by version desc, id desc
-          limit 20
-        )
-    `;
-  });
-  return NextResponse.json({ version: nextVersion, restoredFrom: Number(version) });
+  if (!(await permissionService.allows(session, id, "document:restore"))) return NextResponse.json({ error: "无权恢复该版本" }, { status: 403 });
+  void version;
+  return NextResponse.json({
+    error: "为避免覆盖活跃协作草稿，请在文档版本历史面板中执行恢复",
+    code: "REALTIME_RESTORE_REQUIRED",
+  }, { status: 409 });
 }

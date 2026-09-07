@@ -34,10 +34,19 @@ export default async function DocumentPage({
     contentVersion: Number(row.content_version),
     updatedAt: new Date(row.updated_at).toISOString(),
     collaborationCacheScope: `${session.workspaceId}:${session.userId}`,
+    currentUser: { id: session.userId, displayName: session.displayName },
     canUpdate: access.permissions["document:update"],
   };
 
-  return <DocumentWorkspace documentId={id} title={bootstrap.title} project={bootstrap.project} canUpdate={bootstrap.canUpdate}>
+  return <DocumentWorkspace
+    documentId={id}
+    title={bootstrap.title}
+    project={bootstrap.project}
+    canUpdate={bootstrap.canUpdate}
+    canPublish={access.permissions["document:publish"]}
+    canRestore={access.permissions["document:restore"]}
+    canComment={access.permissions["document:comment"]}
+  >
     <SeekEditor bootstrap={bootstrap} />
   </DocumentWorkspace>;
 }

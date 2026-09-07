@@ -158,5 +158,57 @@ await sql`
     reason text not null default 'manual', created_at timestamptz not null default now(), unique (document_id, version)
   )
 `;
+await sql`alter table document_versions add column if not exists plain_text text not null default ''`;
+await sql`alter table document_versions add column if not exists published_by text references users(id) on delete set null`;
+await sql`alter table document_versions add column if not exists publish_note text not null default ''`;
+await sql`alter table document_versions add column if not exists published_at timestamptz not null default now()`;
+await sql`update document_versions set published_at = created_at where published_by is null and publish_note = '' and published_at > created_at`;
+await sql`
+  create table if not exists comment_threads (
+    id text primary key,
+    document_id text not null references documents(id) on delete cascade,
+    anchor_block_id text not null,
+    anchor_from integer,
+    anchor_to integer,
+    selected_text text not null default '',
+    context_hash text not null default '',
+    status text not null default 'open' check (status in ('open', 'resolved')),
+    created_by text not null references users(id) on delete cascade,
+    resolved_by text references users(id) on delete set null,
+    resolved_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )
+`;
+await sql`create index if not exists comment_threads_document_idx on comment_threads (document_id, status, created_at desc)`;
+await sql`alter table comment_threads add column if not exists anchor_from_relative text`;
+await sql`alter table comment_threads add column if not exists anchor_to_relative text`;
+await sql`
+  create table if not exists comments (
+    id text primary key,
+    thread_id text not null references comment_threads(id) on delete cascade,
+    author_id text not null references users(id) on delete cascade,
+    content text not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )
+`;
+await sql`create index if not exists comments_thread_idx on comments (thread_id, created_at asc)`;
+await sql`
+  create table if not exists attachments (
+    id text primary key,
+    document_id text not null references documents(id) on delete cascade,
+    storage_key text not null unique,
+    file_name text not null,
+    mime_type text not null,
+    byte_size bigint not null check (byte_size >= 0),
+    sha256 text not null,
+    uploaded_by text not null references users(id) on delete cascade,
+    deleted_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )
+`;
+await sql`create index if not exists attachments_document_idx on attachments (document_id, created_at desc) where deleted_at is null`;
 await sql.end();
 console.log("Seek database migrated");

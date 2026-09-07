@@ -7,6 +7,7 @@ import {
 } from "@blocknote/core";
 import { blocksToYDoc, yDocToBlocks } from "@blocknote/core/yjs";
 import * as Y from "yjs";
+import { prosemirrorToYXmlFragment, yXmlFragmentToProsemirror } from "y-prosemirror";
 
 const mathBlockConfig = createBlockConfig(
   () => ({
@@ -61,4 +62,12 @@ export function ensureDocumentHasBlock(editor: ReturnType<typeof createServerBlo
   const initialized = blocksToYDoc(editor, [{ type: "paragraph", content: "" }] as never, "document-store");
   Y.applyUpdate(document, Y.encodeStateAsUpdate(initialized));
   return true;
+}
+
+export function replaceDocumentBlocks(editor: ReturnType<typeof createServerBlockNoteEditor>, document: Y.Doc, blocks: unknown[]) {
+  const restored = blocksToYDoc(editor, blocks as never, "document-store");
+  const proseMirrorDocument = yXmlFragmentToProsemirror(editor.pmSchema, restored.getXmlFragment("document-store"));
+  document.transact(() => {
+    prosemirrorToYXmlFragment(proseMirrorDocument, document.getXmlFragment("document-store"));
+  }, "version-restore");
 }
