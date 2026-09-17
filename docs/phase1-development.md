@@ -49,7 +49,7 @@ Phase 1 不实现标题搜索、全文搜索、语义搜索、AI 或 MCP；搜�
 - 统一 PermissionService 和权限矩阵测试；
 - REST、页面、附件、评论、版本和 WebSocket 共用授权结果；
 - 短期 WebSocket Token，Viewer 服务端只读；
-- Document/Block 级服务端租约，60 秒无编辑活动自动释放；
+- Document/Block 级服务端租约，10 秒无编辑活动自动释放；
 - 失焦、离开文档和断开连接时提前释放租约。
 
 ### Phase 1.4：发布、评论与附件
@@ -86,14 +86,14 @@ key          document_id + block_id
 holder       user_id + connection_id
 acquired_at  首次获取时间
 active_at    最后一次有效编辑或续租时间
-expires_at   active_at + 60s
+expires_at   active_at + 10s
 ```
 
 规则：
 
 1. 光标进入 Block 时申请租约；未获得租约前不提交该 Block 的本地编辑事务。
 2. 只有内容变更或有效的显式续租才更新 `active_at`；单纯保持光标不得无限续租。
-3. 连续 60 秒没有活动时，服务端删除租约并广播释放；原持有者客户端收到事件后退出该 Block 的编辑状态。
+3. 连续 10 秒没有活动时，服务端删除租约并广播释放；原持有者客户端收到事件后退出该 Block 的编辑状态。
 4. 失焦、切换 Block、离开页面和 WebSocket 断开会尝试立即释放；服务端超时不依赖客户端正常关闭。
 5. 断线编辑时不能获得新的服务端租约；已在编辑的本地内容由 Yjs 保留，重连后合并并向用户显示冲突风险。
 6. Viewer 和其他没有 `document:update` 权限的用户不得获取租约。
@@ -148,7 +148,7 @@ Seed 另创建用于 ACL 测试的文档：
 
 - `平台基础设施 / 生产密钥轮换`：对“查看者”显式 deny `document:read`，验证父级 Viewer 权限被收紧；
 - `算法研究 / 外部评审草案`：对“访客”显式 allow `document:comment`，验证页面 ACL 在 Workspace 成员和 Project Viewer 边界内扩大权限；
-- `平台基础设施 / 协作锁测试`：平台编辑和 Owner 用于同 Block 租约、60 秒超时和不同 Block 并行编辑测试。
+- `平台基础设施 / 协作锁测试`：平台编辑和 Owner 用于同 Block 租约、10 秒超时和不同 Block 并行编辑测试。
 
 ## 7. Phase 1 最低验收条件
 
@@ -156,7 +156,7 @@ Seed 另创建用于 ACL 测试的文档：
 - 测试账号的 Project 角色和 Document ACL 与本文档矩阵一致；
 - Viewer 即使直接构造 Yjs 写更新也不能修改文档；
 - 两名 Editor 可在不同 Block 并行编辑并实时看到对方变更；
-- 同一 Block 只授予一名持有者，60 秒无活动后另一名 Editor 可接管；
+- 同一 Block 只授予一名持有者，10 秒无活动后另一名 Editor 可接管；
 - 断线编辑和重连后不丢失、不重复整篇文档；
 - 自动保存不产生版本，只有发布会增加版本号；
 - 恢复一个版本会更新当前草稿，不删除原有版本，也不自动发布；

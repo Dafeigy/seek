@@ -131,10 +131,11 @@ await sql`
     connection_id text not null,
     acquired_at timestamptz not null default now(),
     active_at timestamptz not null default now(),
-    expires_at timestamptz not null default (now() + interval '60 seconds'),
+    expires_at timestamptz not null default (now() + interval '10 seconds'),
     primary key (document_id, block_id)
   )
 `;
+await sql`alter table document_block_leases alter column expires_at set default (now() + interval '10 seconds')`;
 await sql`create index if not exists document_block_leases_connection_idx on document_block_leases (connection_id)`;
 await sql`create index if not exists document_block_leases_expiry_idx on document_block_leases (expires_at)`;
 await sql`alter table documents add column if not exists ydoc_initialized_at timestamptz`;

@@ -20,6 +20,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { resolveCollaborationUrl } from "@/lib/collaboration-url";
 import { collaborationCacheName } from "@/lib/collaboration-cache";
+import { participantColor } from "@/lib/participant-color";
 import { useTheme } from "@/components/theme-provider";
 import type { DocumentBootstrap } from "@/lib/documents";
 
@@ -39,13 +40,6 @@ function blockText(content: unknown): string {
 function developmentEvent(event: string, fields: Record<string, unknown> = {}) {
   if (process.env.NODE_ENV !== "development") return;
   console.info(JSON.stringify({ timestamp: new Date().toISOString(), service: "web-collaboration", event, ...fields }));
-}
-
-function participantColor(userId: string) {
-  const palette = ["#0f766e", "#2563eb", "#7c3aed", "#c2410c", "#be123c", "#047857", "#4338ca", "#a21caf"];
-  let hash = 0;
-  for (const character of userId) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
-  return palette[Math.abs(hash) % palette.length];
 }
 
 function encodeRelativePosition(position: unknown) {
@@ -325,7 +319,7 @@ export function SeekEditor({ bootstrap }: Props) {
         const operation = leaseRequestsRef.current.get(message.requestId);
         leaseRequestsRef.current.delete(message.requestId);
         if (operation === "activity") {
-          if (message.granted) leaseExpiresAtRef.current = Date.now() + 60_000;
+          if (message.granted) leaseExpiresAtRef.current = Date.now() + 10_000;
           else if (heldBlockRef.current === message.blockId) {
             heldBlockRef.current = null;
             leaseExpiresAtRef.current = 0;
@@ -341,7 +335,7 @@ export function SeekEditor({ bootstrap }: Props) {
         pendingBlockRef.current = null;
         if (message.granted) {
           heldBlockRef.current = message.blockId;
-          leaseExpiresAtRef.current = Date.now() + 60_000;
+          leaseExpiresAtRef.current = Date.now() + 10_000;
           setLeaseStatus("held");
         } else {
           heldBlockRef.current = null;
@@ -443,7 +437,29 @@ export function SeekEditor({ bootstrap }: Props) {
   useEffect(() => {
     if (!bootstrap.canUpdate) return;
     const stopUnleasedTransactions = editor.onBeforeChange(({ getChanges }) => {
-      const localChanges = getChanges().filter((change) => change.source.type !== "yjs-remote");
+      let localChanges;
+      try {
+        localChanges = getChanges().filter((change) => change.source.type !== "yjs-remote");
+      } catch (error) {
+        // Enter splits a block through an intermediate ProseMirror transaction.
+        // During that transaction BlockNote can briefly expose a blockContainer
+        // without an id, so its change collector throws before the final block
+        // is assigned an id. The current block is still the authoritative scope
+        // for the lease check; do not turn a valid newline into a runtime error.
+        if (error instanceof Error && /blockContainer does not have an ID/.test(error.message)) {
+          let currentBlockId: string | null = null;
+          try {
+            currentBlockId = editor.getTextCursorPosition().block.id;
+          } catch {
+            // There is no editable cursor before hydration.
+          }
+          if (currentBlockId && heldBlockRef.current === currentBlockId && leaseExpiresAtRef.current > Date.now()) return;
+          if (currentBlockId) acquireBlockRef.current?.(currentBlockId);
+          setLeaseStatus("requesting");
+          return false;
+        }
+        throw error;
+      }
       if (localChanges.length === 0) return;
       const heldBlock = heldBlockRef.current;
       if (heldBlock && leaseExpiresAtRef.current > Date.now()) {

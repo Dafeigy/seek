@@ -239,7 +239,7 @@ async function handleLeaseMessage(input: {
   if (message.type === "lease.activity") {
     const [lease] = await sql`
       update document_block_leases
-      set active_at = now(), expires_at = now() + interval '60 seconds'
+      set active_at = now(), expires_at = now() + interval '10 seconds'
       where document_id = ${input.documentName} and block_id = ${message.blockId}
         and user_id = ${context.userId} and connection_id = ${input.connection.socketId} and expires_at > now()
       returning user_id
