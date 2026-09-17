@@ -8,6 +8,7 @@ import { DocumentToolsPanel, type CommentAnchor, type DocumentTool } from "@/com
 import { SidebarContent } from "@/components/knowledge-dashboard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useSidebarCompact } from "@/components/sidebar-state";
 
 type Props = {
   documentId: string;
@@ -21,7 +22,7 @@ type Props = {
 };
 
 export function DocumentWorkspace({ documentId, title: initialTitle, project: initialProject = "平台基础设施", canUpdate = false, canPublish = false, canRestore = false, canComment = false, children }: Props) {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [compact, setCompact] = useSidebarCompact();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
   const [project] = useState(initialProject);
@@ -93,18 +94,18 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
 
     <aside className={cn("fixed inset-y-0 left-0 z-50 w-[331.2px] border-r border-border bg-sidebar transition-transform duration-200 md:hidden", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
       <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} className="absolute right-3 top-3 size-10 text-muted" aria-label="关闭侧边栏"><X className="size-4" /></Button>
-      <SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="document" />
+      <SidebarContent compact={false} closeMobile={() => setMobileOpen(false)} currentPage="home" />
     </aside>
 
-    <aside id="document-sidebar" aria-hidden={!sidebarOpen} inert={!sidebarOpen} className={cn("fixed inset-y-0 left-0 z-30 hidden w-[302.4px] border-r border-border bg-sidebar transition-transform duration-200 md:block", sidebarOpen ? "translate-x-0" : "-translate-x-full")}>
-      <SidebarContent compact={false} currentPage="document" />
+    <aside id="document-sidebar" className={cn("fixed inset-y-0 left-0 z-30 hidden border-r border-border bg-sidebar transition-[width] duration-200 md:block", compact ? "w-[68px]" : "w-[302.4px]")}>
+      <SidebarContent compact={compact} currentPage="home" />
     </aside>
 
-    <section className={cn("min-h-screen transition-[padding] duration-200", sidebarOpen && "md:pl-[302.4px]")}>
+    <section className={cn("min-h-screen transition-[padding] duration-200", compact ? "md:pl-[68px]" : "md:pl-[302.4px]")}>
       <header className="sticky top-0 z-20 flex h-14 items-center border-b border-border bg-canvas/90 px-3 backdrop-blur-xl sm:px-5">
         <Button variant="ghost" size="icon" className="mr-1 md:hidden" onClick={() => setMobileOpen(true)} aria-label="打开侧边栏"><Menu className="size-[18px]" /></Button>
-        <Button variant="ghost" size="icon" className="mr-1 hidden md:inline-flex" onClick={() => setSidebarOpen((value) => !value)} aria-expanded={sidebarOpen} aria-controls="document-sidebar" aria-label={sidebarOpen ? "收起侧边栏" : "展开侧边栏"} title={sidebarOpen ? "收起侧边栏" : "展开侧边栏"}>
-          <PanelLeftClose className={cn("size-[18px] transition-transform duration-200", !sidebarOpen && "rotate-180")} />
+        <Button variant="ghost" size="icon" className="mr-1 hidden md:inline-flex" onClick={() => setCompact((value) => !value)} aria-expanded={!compact} aria-controls="document-sidebar" aria-label={compact ? "展开侧边栏" : "收起侧边栏"} title={compact ? "展开侧边栏" : "收起侧边栏"}>
+          <PanelLeftClose className={cn("size-[18px] transition-transform duration-200", compact && "rotate-180")} />
         </Button>
         <div className="mx-2 h-4 w-px bg-border" />
         <div className="flex min-w-0 items-center gap-2 text-sm">
