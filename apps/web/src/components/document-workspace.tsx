@@ -2,8 +2,9 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Check, History, Menu, MoreHorizontal, PanelLeftClose, Pencil, Share2, X } from "lucide-react";
+import { Check, History, Menu, MessageSquare, PanelLeftClose, Paperclip, Pencil, Upload, X } from "lucide-react";
 
+import { DocumentToolsPanel, type CommentAnchor, type DocumentTool } from "@/components/document-tools-panel";
 import { SidebarContent } from "@/components/knowledge-dashboard";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,10 +14,13 @@ type Props = {
   title: string;
   project?: string;
   canUpdate?: boolean;
+  canPublish?: boolean;
+  canRestore?: boolean;
+  canComment?: boolean;
   children: ReactNode;
 };
 
-export function DocumentWorkspace({ documentId, title: initialTitle, project: initialProject = "平台基础设施", canUpdate = false, children }: Props) {
+export function DocumentWorkspace({ documentId, title: initialTitle, project: initialProject = "平台基础设施", canUpdate = false, canPublish = false, canRestore = false, canComment = false, children }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [title, setTitle] = useState(initialTitle);
@@ -25,6 +29,9 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
   const [draftTitle, setDraftTitle] = useState(initialTitle);
   const [titleStatus, setTitleStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [collaboration, setCollaboration] = useState({ label: "协作连接中", connected: false });
+  const [participants, setParticipants] = useState<Array<{ id: string; displayName: string; color: string; isCurrentUser: boolean }>>([]);
+  const [activeTool, setActiveTool] = useState<DocumentTool | null>(null);
+  const [commentAnchor, setCommentAnchor] = useState<CommentAnchor | null>(null);
 
   useEffect(() => {
     const onCollaborationStatus = (event: Event) => {
@@ -32,7 +39,21 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
       if (detail?.documentId === documentId) setCollaboration({ label: detail.label, connected: detail.connected });
     };
     window.addEventListener("seek:collaboration-status", onCollaborationStatus);
-    return () => window.removeEventListener("seek:collaboration-status", onCollaborationStatus);
+    const onParticipants = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId: string; participants: Array<{ id: string; displayName: string; color: string; isCurrentUser: boolean }> }>).detail;
+      if (detail?.documentId === documentId) setParticipants(detail.participants);
+    };
+    window.addEventListener("seek:collaboration-participants", onParticipants);
+    const onCommentAnchor = (event: Event) => {
+      const detail = (event as CustomEvent<CommentAnchor & { documentId: string }>).detail;
+      if (detail?.documentId === documentId) setCommentAnchor(detail);
+    };
+    window.addEventListener("seek:comment-anchor", onCommentAnchor);
+    return () => {
+      window.removeEventListener("seek:collaboration-status", onCollaborationStatus);
+      window.removeEventListener("seek:collaboration-participants", onParticipants);
+      window.removeEventListener("seek:comment-anchor", onCommentAnchor);
+    };
   }, [documentId]);
 
   async function commitTitle() {
@@ -92,9 +113,10 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
           <span className="truncate font-medium">{title}</span>
         </div>
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="hidden sm:inline-flex"><History className="size-4" />版本历史</Button>
-          <Button variant="ghost" size="icon" aria-label="分享文档"><Share2 className="size-[17px]" /></Button>
-          <Button variant="ghost" size="icon" aria-label="更多操作"><MoreHorizontal className="size-[17px]" /></Button>
+          {canPublish && <Button variant="default" size="sm" className="hidden sm:inline-flex" onClick={() => setActiveTool("history")}><Upload className="size-4" />发布</Button>}
+          <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => setActiveTool("history")}><History className="size-4" />版本历史</Button>
+          <Button variant="ghost" size="icon" onClick={() => setActiveTool("comments")} aria-label="评论"><MessageSquare className="size-[17px]" /></Button>
+          <Button variant="ghost" size="icon" onClick={() => setActiveTool("attachments")} aria-label="附件"><Paperclip className="size-[17px]" /></Button>
         </div>
       </header>
 
@@ -117,13 +139,20 @@ export function DocumentWorkspace({ documentId, title: initialTitle, project: in
             </Button>}
             {titleStatus !== "idle" && <p role="status" className={cn("mt-1 text-xs", titleStatus === "error" ? "text-destructive" : "text-soft")}>{titleStatus === "saving" ? "正在保存标题…" : titleStatus === "saved" ? <span className="inline-flex items-center gap-1"><Check className="size-3" />标题已保存</span> : "标题保存失败，请重试"}</p>}
           </div>
-          <div className={cn("flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", collaboration.connected ? "bg-success-soft text-success-foreground" : "bg-muted text-muted-foreground")} title={canUpdate ? "Editor" : "Viewer"}>
-            <span className={cn("size-1.5 rounded-full", collaboration.connected ? "bg-success-foreground" : "bg-muted-foreground")} />
-            {collaboration.label}
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <div className={cn("flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium", collaboration.connected ? "bg-success-soft text-success-foreground" : "bg-muted text-muted-foreground")} title={canUpdate ? "Editor" : "Viewer"}>
+              <span className={cn("size-1.5 rounded-full", collaboration.connected ? "bg-success-foreground" : "bg-muted-foreground")} />
+              {collaboration.label}
+            </div>
+            {collaboration.connected && participants.length > 0 && <div className="flex items-center -space-x-1.5" aria-label={`当前有 ${participants.length} 人正在浏览`}>
+              {participants.slice(0, 6).map((participant) => <span key={participant.id} title={`${participant.displayName}${participant.isCurrentUser ? "（你）" : ""}`} className="flex size-6 items-center justify-center rounded-full border-2 border-canvas text-[10px] font-semibold text-white" style={{ backgroundColor: participant.color }}>{participant.displayName.trim().slice(0, 1).toUpperCase() || "?"}</span>)}
+              {participants.length > 6 && <span className="flex size-6 items-center justify-center rounded-full border-2 border-canvas bg-muted text-[9px] font-medium text-muted-foreground">+{participants.length - 6}</span>}
+            </div>}
           </div>
         </div>
         {children}
       </section>
     </section>
+    {activeTool && <DocumentToolsPanel documentId={documentId} tool={activeTool} onClose={() => setActiveTool(null)} canPublish={canPublish} canRestore={canRestore} canComment={canComment} canUpdate={canUpdate} initialCommentAnchor={commentAnchor} />}
   </main>;
 }

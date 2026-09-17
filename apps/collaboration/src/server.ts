@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import postgres from "postgres";
 import * as Y from "yjs";
 import { resolveDocumentPermissions, verifyCollaborationToken, type ProjectRole, type WorkspaceRole } from "@seek/permissions";
-import { createServerBlockNoteEditor, ensureDocumentHasBlock } from "./content-schema.js";
+import { createServerBlockNoteEditor, ensureDocumentHasBlock, replaceDocumentBlocks } from "./content-schema.js";
 
 const sql = postgres(process.env.DATABASE_URL ?? "postgresql://seek:seek_dev_password@127.0.0.1:5432/seek");
 const port = Number(process.env.COLLABORATION_PORT ?? 1234);
@@ -23,6 +23,13 @@ type LeaseMessage = {
   type?: string;
   requestId?: string;
   blockId?: string;
+};
+
+type DocumentCommand = {
+  type?: string;
+  requestId?: string;
+  version?: number;
+  note?: string;
 };
 
 type LogLevel = "info" | "warn" | "error";
@@ -164,7 +171,7 @@ async function currentDocumentPermissions(documentId: string, userId: string, wo
 async function broadcastLeases(documentName: string, document?: { awareness: { setLocalStateField: (field: string, value: unknown) => void } }) {
   if (!document) return;
   const leases = await sql`
-    select leases.block_id, leases.user_id, users.display_name, leases.acquired_at, leases.active_at, leases.expires_at
+    select leases.block_id, leases.user_id, leases.connection_id, users.display_name, leases.acquired_at, leases.active_at, leases.expires_at
     from document_block_leases leases join users on users.id = leases.user_id
     where leases.document_id = ${documentName} and leases.expires_at > now()
     order by leases.acquired_at asc
@@ -172,6 +179,7 @@ async function broadcastLeases(documentName: string, document?: { awareness: { s
   document.awareness.setLocalStateField("blockLeases", leases.map((lease) => ({
     blockId: lease.block_id,
     userId: lease.user_id,
+    connectionId: lease.connection_id,
     displayName: lease.display_name,
     acquiredAt: new Date(lease.acquired_at).toISOString(),
     activeAt: new Date(lease.active_at).toISOString(),
@@ -231,7 +239,7 @@ async function handleLeaseMessage(input: {
   if (message.type === "lease.activity") {
     const [lease] = await sql`
       update document_block_leases
-      set active_at = now(), expires_at = now() + interval '60 seconds'
+      set active_at = now(), expires_at = now() + interval '10 seconds'
       where document_id = ${input.documentName} and block_id = ${message.blockId}
         and user_id = ${context.userId} and connection_id = ${input.connection.socketId} and expires_at > now()
       returning user_id
@@ -250,6 +258,94 @@ async function handleLeaseMessage(input: {
     `;
     reply(Boolean(lease));
     if (lease) await broadcastLeases(input.documentName, input.document);
+  }
+}
+
+async function handleDocumentCommand(input: {
+  documentName: string;
+  document: Y.Doc;
+  connection: { context: CollaborationContext; sendStateless: (payload: string) => void };
+  payload: string;
+}) {
+  let message: DocumentCommand;
+  try {
+    message = JSON.parse(input.payload) as DocumentCommand;
+  } catch {
+    return;
+  }
+  if (!message.type?.startsWith("document.") || !message.requestId) return;
+  const reply = (result: Record<string, unknown>) => input.connection.sendStateless(JSON.stringify({
+    type: "document.command.result",
+    requestId: message.requestId,
+    ...result,
+  }));
+  const permissions = await currentDocumentPermissions(
+    input.documentName,
+    input.connection.context.userId,
+    input.connection.context.workspaceId,
+  );
+
+  if (message.type === "document.publish") {
+    if (!permissions?.["document:publish"]) return reply({ ok: false, error: "无权发布该文档" });
+    try {
+      const blocks = yDocToBlocks(blockNote, input.document, "document-store") as unknown[];
+      const projection = projectBlocks(blocks);
+      const state = Buffer.from(Y.encodeStateAsUpdate(input.document));
+      const note = typeof message.note === "string" ? message.note.trim().slice(0, 500) : "";
+      const [published] = await sql.begin(async (tx) => {
+        const updated = await tx`
+          update documents set ydoc_state = ${state}, block_json = ${tx.json(blocks as never)},
+            markdown = ${projection.markdown}, plain_text = ${projection.plainText}, projected_at = now(), updated_at = now()
+          where id = ${input.documentName} and deleted_at is null
+          returning id
+        `;
+        if (!updated[0]) throw new Error("Document no longer exists");
+        return tx`
+          insert into document_versions (
+            document_id, version, block_json, markdown, plain_text, ydoc_state,
+            reason, published_by, publish_note, published_at
+          ) values (
+            ${input.documentName},
+            (select coalesce(max(version), 0) + 1 from document_versions where document_id = ${input.documentName}),
+            ${tx.json(blocks as never)}, ${projection.markdown}, ${projection.plainText}, ${state},
+            'manual', ${input.connection.context.userId}, ${note}, now()
+          ) returning version, published_at
+        `;
+      });
+      log("info", "document_published", { documentId: input.documentName, version: Number(published.version), userId: input.connection.context.userId });
+      return reply({ ok: true, version: Number(published.version), publishedAt: published.published_at });
+    } catch (error) {
+      log("error", "document_publish_failed", { documentId: input.documentName, error: error instanceof Error ? error.message : "Unknown error" });
+      return reply({ ok: false, error: "发布失败，请重试" });
+    }
+  }
+
+  if (message.type === "document.restore") {
+    if (!permissions?.["document:restore"]) return reply({ ok: false, error: "无权恢复该版本" });
+    if (!Number.isSafeInteger(message.version) || Number(message.version) < 1) return reply({ ok: false, error: "版本号无效" });
+    const [source] = await sql`
+      select block_json from document_versions
+      where document_id = ${input.documentName} and version = ${Number(message.version)}
+    `;
+    if (!source) return reply({ ok: false, error: "版本不存在" });
+    try {
+      replaceDocumentBlocks(blockNote, input.document, source.block_json as unknown[]);
+      const blocks = yDocToBlocks(blockNote, input.document, "document-store") as unknown[];
+      const projection = projectBlocks(blocks);
+      const state = Buffer.from(Y.encodeStateAsUpdate(input.document));
+      const [draft] = await sql`
+        update documents set ydoc_state = ${state}, block_json = ${sql.json(blocks as never)},
+          markdown = ${projection.markdown}, plain_text = ${projection.plainText},
+          content_version = content_version + 1, projected_at = now(), updated_at = now()
+        where id = ${input.documentName} and deleted_at is null returning content_version
+      `;
+      if (!draft) throw new Error("Document no longer exists");
+      log("info", "document_version_restored", { documentId: input.documentName, version: Number(message.version), userId: input.connection.context.userId });
+      return reply({ ok: true, restoredFrom: Number(message.version), contentVersion: Number(draft.content_version) });
+    } catch (error) {
+      log("error", "document_restore_failed", { documentId: input.documentName, version: message.version, error: error instanceof Error ? error.message : "Unknown error" });
+      return reply({ ok: false, error: "恢复失败，请重试" });
+    }
   }
 }
 
@@ -403,7 +499,8 @@ const server = new Server({
     return context;
   },
   async onStateless({ documentName, document, connection, payload }) {
-    await handleLeaseMessage({ documentName, document, connection: connection as never, payload });
+    if (payload.includes('"type":"lease.')) await handleLeaseMessage({ documentName, document, connection: connection as never, payload });
+    else await handleDocumentCommand({ documentName, document, connection: connection as never, payload });
   },
   async onDisconnect({ documentName, document, socketId }) {
     await sql`delete from document_block_leases where connection_id = ${socketId}`;

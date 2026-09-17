@@ -12,6 +12,7 @@ import { BlockNoteView } from "@blocknote/shadcn";
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
 import { IndexeddbPersistence } from "y-indexeddb";
 import * as Y from "yjs";
+import { absolutePositionToRelativePosition, ySyncPluginKey } from "y-prosemirror";
 import { Check, History, Lock } from "lucide-react";
 import { nanoid } from "nanoid";
 
@@ -19,6 +20,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 import { resolveCollaborationUrl } from "@/lib/collaboration-url";
 import { collaborationCacheName } from "@/lib/collaboration-cache";
+import { participantColor } from "@/lib/participant-color";
 import { useTheme } from "@/components/theme-provider";
 import type { DocumentBootstrap } from "@/lib/documents";
 
@@ -38,6 +40,14 @@ function blockText(content: unknown): string {
 function developmentEvent(event: string, fields: Record<string, unknown> = {}) {
   if (process.env.NODE_ENV !== "development") return;
   console.info(JSON.stringify({ timestamp: new Date().toISOString(), service: "web-collaboration", event, ...fields }));
+}
+
+function encodeRelativePosition(position: unknown) {
+  if (!position) return null;
+  const bytes = Y.encodeRelativePosition(position as Y.RelativePosition);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 export function SeekEditor({ bootstrap }: Props) {
@@ -77,8 +87,19 @@ export function SeekEditor({ bootstrap }: Props) {
   const activeBlockRef = useRef<string | null>(null);
   const heldBlockRef = useRef<string | null>(null);
   const pendingBlockRef = useRef<string | null>(null);
+  const acquireBlockRef = useRef<((blockId: string) => void) | null>(null);
+  const leaseExpiresAtRef = useRef(0);
   const leaseRequestsRef = useRef(new Map<string, "acquire" | "activity" | "release">());
   const pendingDestroyRef = useRef<{ timer: number; provider: HocuspocusProvider | null; persistence: IndexeddbPersistence; ydoc: Y.Doc } | null>(null);
+  const uploadFile = useMemo(() => async (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}/attachments`, { method: "POST", body: form });
+    const result = await response.json().catch(() => ({})) as { url?: string; error?: string };
+    if (!response.ok || !result.url) throw new Error(result.error ?? "附件上传失败");
+    window.dispatchEvent(new Event("seek:attachments-changed"));
+    return result.url;
+  }, [documentId]);
 
   const editor = useCreateBlockNote(
     provider
@@ -90,10 +111,11 @@ export function SeekEditor({ bootstrap }: Props) {
             placeholders: { ...zh.placeholders, emptyDocument: "从这里开始记录吧" },
             math: mathLocales.zh,
           },
+          uploadFile,
           collaboration: {
             provider: { awareness: provider.awareness ?? undefined },
             fragment: ydoc.getXmlFragment("document-store"),
-            user: { name: "你", color: "#0f766e" },
+            user: { name: bootstrap.currentUser?.displayName ?? "未知用户", color: participantColor(bootstrap.currentUser?.id ?? "anonymous") },
           },
         })
       : {
@@ -104,9 +126,10 @@ export function SeekEditor({ bootstrap }: Props) {
             placeholders: { ...zh.placeholders, emptyDocument: "从这里开始记录吧" },
             math: mathLocales.zh,
           },
+          uploadFile,
           initialContent: (bootstrap.blockJson.length ? bootstrap.blockJson : [{ type: "paragraph", content: "" }]) as never,
         },
-    [provider, ydoc],
+    [bootstrap.currentUser?.displayName, bootstrap.currentUser?.id, provider, uploadFile, ydoc],
   );
 
   useEffect(() => {
@@ -159,6 +182,11 @@ export function SeekEditor({ bootstrap }: Props) {
     if (provider.synced) onSynced({ state: true });
     if (startedProviderRef.current !== provider) {
       startedProviderRef.current = provider;
+      provider.awareness?.setLocalStateField("seekUser", {
+        id: bootstrap.currentUser?.id ?? "anonymous",
+        displayName: bootstrap.currentUser?.displayName ?? "未知用户",
+        color: participantColor(bootstrap.currentUser?.id ?? "anonymous"),
+      });
       provider.attach();
       void provider.configuration.websocketProvider.connect();
     }
@@ -168,7 +196,7 @@ export function SeekEditor({ bootstrap }: Props) {
       provider.off("disconnect", onDisconnect);
       provider.off("authenticationFailed", onAuthenticationFailed);
     };
-  }, [documentId, localHydrated, provider]);
+  }, [bootstrap.currentUser?.displayName, bootstrap.currentUser?.id, documentId, localHydrated, provider]);
 
   useEffect(() => {
     const pending = pendingDestroyRef.current;
@@ -240,7 +268,7 @@ export function SeekEditor({ bootstrap }: Props) {
   useEffect(() => {
     if (!provider || !bootstrap.canUpdate) return;
     const sendLease = (type: "acquire" | "activity" | "release", blockId: string) => {
-      const requestId = typeof globalThis.crypto.randomUUID === "function"
+      const requestId = typeof globalThis.crypto?.randomUUID === "function"
         ? globalThis.crypto.randomUUID()
         : nanoid();
       leaseRequestsRef.current.set(requestId, type);
@@ -249,7 +277,10 @@ export function SeekEditor({ bootstrap }: Props) {
     const release = (blockId = heldBlockRef.current) => {
       if (!blockId) return;
       sendLease("release", blockId);
-      if (heldBlockRef.current === blockId) heldBlockRef.current = null;
+      if (heldBlockRef.current === blockId) {
+        heldBlockRef.current = null;
+        leaseExpiresAtRef.current = 0;
+      }
     };
     const acquireBlock = (blockId: string) => {
       if (activeBlockRef.current === blockId && (heldBlockRef.current === blockId || pendingBlockRef.current === blockId)) return;
@@ -260,6 +291,7 @@ export function SeekEditor({ bootstrap }: Props) {
       setLeaseStatus("requesting");
       sendLease("acquire", blockId);
     };
+    acquireBlockRef.current = acquireBlock;
     const acquireCurrentBlock = () => {
       try {
         const blockId = editor.getTextCursorPosition().block.id;
@@ -286,6 +318,15 @@ export function SeekEditor({ bootstrap }: Props) {
         if (message.type !== "lease.result" || !message.requestId || !message.blockId) return;
         const operation = leaseRequestsRef.current.get(message.requestId);
         leaseRequestsRef.current.delete(message.requestId);
+        if (operation === "activity") {
+          if (message.granted) leaseExpiresAtRef.current = Date.now() + 10_000;
+          else if (heldBlockRef.current === message.blockId) {
+            heldBlockRef.current = null;
+            leaseExpiresAtRef.current = 0;
+            setLeaseStatus("blocked");
+          }
+          return;
+        }
         if (operation !== "acquire") return;
         if (message.blockId !== activeBlockRef.current) {
           if (message.granted) sendLease("release", message.blockId);
@@ -294,9 +335,11 @@ export function SeekEditor({ bootstrap }: Props) {
         pendingBlockRef.current = null;
         if (message.granted) {
           heldBlockRef.current = message.blockId;
+          leaseExpiresAtRef.current = Date.now() + 10_000;
           setLeaseStatus("held");
         } else {
           heldBlockRef.current = null;
+          leaseExpiresAtRef.current = 0;
           setLeaseHolder(message.holderDisplayName ?? message.holderUserId ?? null);
           setLeaseStatus("blocked");
         }
@@ -338,6 +381,7 @@ export function SeekEditor({ bootstrap }: Props) {
     editor.domElement?.addEventListener("focusout", onFocusOut);
     window.addEventListener("pagehide", onPageHide);
     return () => {
+      acquireBlockRef.current = null;
       release();
       onSelectionChange();
       onLocalChange();
@@ -350,6 +394,147 @@ export function SeekEditor({ bootstrap }: Props) {
       window.removeEventListener("pagehide", onPageHide);
     };
   }, [bootstrap.canUpdate, documentId, editor, provider]);
+
+  useEffect(() => {
+    if (!provider?.awareness) return;
+    const awareness = provider.awareness;
+    const updatePresence = () => {
+      const people = new Map<string, { id: string; displayName: string; color: string; isCurrentUser: boolean }>();
+      let leases: Array<{ blockId?: string; userId?: string; displayName?: string; expiresAt?: string }> = [];
+      for (const state of awareness.getStates().values()) {
+        const user = state.seekUser as { id?: string; displayName?: string; color?: string } | undefined;
+        if (user?.id && user.displayName) people.set(user.id, {
+          id: user.id,
+          displayName: user.displayName,
+          color: user.color ?? participantColor(user.id),
+          isCurrentUser: user.id === bootstrap.currentUser?.id,
+        });
+        if (Array.isArray(state.blockLeases)) leases = state.blockLeases;
+      }
+      window.dispatchEvent(new CustomEvent("seek:collaboration-participants", {
+        detail: { documentId, participants: [...people.values()] },
+      }));
+      const heldBlock = heldBlockRef.current;
+      if (!heldBlock) return;
+      const authoritativeLease = leases.find((lease) => lease.blockId === heldBlock);
+      if (authoritativeLease && authoritativeLease.userId === bootstrap.currentUser?.id) {
+        const expiresAt = Date.parse(authoritativeLease.expiresAt ?? "");
+        if (Number.isFinite(expiresAt)) leaseExpiresAtRef.current = expiresAt;
+        return;
+      }
+      if (authoritativeLease) {
+        heldBlockRef.current = null;
+        leaseExpiresAtRef.current = 0;
+        setLeaseHolder(authoritativeLease.displayName ?? null);
+        setLeaseStatus("blocked");
+      }
+    };
+    awareness.on("change", updatePresence);
+    updatePresence();
+    return () => awareness.off("change", updatePresence);
+  }, [bootstrap.currentUser?.id, documentId, provider]);
+
+  useEffect(() => {
+    if (!bootstrap.canUpdate) return;
+    const stopUnleasedTransactions = editor.onBeforeChange(({ getChanges }) => {
+      let localChanges;
+      try {
+        localChanges = getChanges().filter((change) => change.source.type !== "yjs-remote");
+      } catch (error) {
+        // Enter splits a block through an intermediate ProseMirror transaction.
+        // During that transaction BlockNote can briefly expose a blockContainer
+        // without an id, so its change collector throws before the final block
+        // is assigned an id. The current block is still the authoritative scope
+        // for the lease check; do not turn a valid newline into a runtime error.
+        if (error instanceof Error && /blockContainer does not have an ID/.test(error.message)) {
+          let currentBlockId: string | null = null;
+          try {
+            currentBlockId = editor.getTextCursorPosition().block.id;
+          } catch {
+            // There is no editable cursor before hydration.
+          }
+          if (currentBlockId && heldBlockRef.current === currentBlockId && leaseExpiresAtRef.current > Date.now()) return;
+          if (currentBlockId) acquireBlockRef.current?.(currentBlockId);
+          setLeaseStatus("requesting");
+          return false;
+        }
+        throw error;
+      }
+      if (localChanges.length === 0) return;
+      const heldBlock = heldBlockRef.current;
+      if (heldBlock && leaseExpiresAtRef.current > Date.now()) {
+        // Inserts, deletes and moves all carry their affected block. Treating
+        // every insertion as safe here accidentally let a holder of block A
+        // create or alter content in block B.
+        const onlyHeldBlockChanged = localChanges.every((change) => change.block.id === heldBlock);
+        if (onlyHeldBlockChanged) return;
+      }
+      let currentBlockId: string | null = null;
+      try {
+        currentBlockId = editor.getTextCursorPosition().block.id;
+      } catch {
+        // There is no editable cursor before hydration.
+      }
+      if (currentBlockId) acquireBlockRef.current?.(currentBlockId);
+      setLeaseStatus("requesting");
+      return false;
+    });
+    const expiryTimer = window.setInterval(() => {
+      if (heldBlockRef.current && leaseExpiresAtRef.current <= Date.now()) {
+        heldBlockRef.current = null;
+        leaseExpiresAtRef.current = 0;
+        setLeaseStatus("idle");
+      }
+    }, 1_000);
+    return () => {
+      stopUnleasedTransactions();
+      window.clearInterval(expiryTimer);
+    };
+  }, [bootstrap.canUpdate, editor]);
+
+  useEffect(() => {
+    if (!provider) return;
+    const onCommand = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; type?: string; requestId?: string; note?: string; version?: number }>).detail;
+      if (detail?.documentId !== documentId || !detail.type || !detail.requestId) return;
+      provider.sendStateless(JSON.stringify(detail));
+    };
+    const onResult = ({ payload }: { payload: string }) => {
+      try {
+        const detail = JSON.parse(payload) as { type?: string };
+        if (detail.type === "document.command.result") {
+          window.dispatchEvent(new CustomEvent("seek:document-command-result", { detail: { ...detail, documentId } }));
+        }
+      } catch {
+        // Other stateless messages are handled by their own listeners.
+      }
+    };
+    window.addEventListener("seek:document-command", onCommand);
+    provider.on("stateless", onResult);
+    return () => {
+      window.removeEventListener("seek:document-command", onCommand);
+      provider.off("stateless", onResult);
+    };
+  }, [documentId, provider]);
+
+  useEffect(() => editor.onSelectionChange(() => {
+    try {
+      const position = editor.getTextCursorPosition();
+      const selection = editor.getSelectionCutBlocks();
+      const selectedText = selection.blocks.map((block) => blockText(block.content)).filter(Boolean).join("\n").slice(0, 2_000);
+      const { startPos, endPos } = selection._meta;
+      const binding = ySyncPluginKey.getState(editor.prosemirrorState)?.binding;
+      const relativeFrom = binding ? encodeRelativePosition(absolutePositionToRelativePosition(startPos, binding.type, binding.mapping)) : null;
+      const relativeTo = binding ? encodeRelativePosition(absolutePositionToRelativePosition(endPos, binding.type, binding.mapping)) : null;
+      const contextBefore = editor.prosemirrorState.doc.textBetween(Math.max(0, startPos - 64), startPos, "\n").slice(-64);
+      const contextAfter = editor.prosemirrorState.doc.textBetween(endPos, Math.min(editor.prosemirrorState.doc.content.size, endPos + 64), "\n").slice(0, 64);
+      window.dispatchEvent(new CustomEvent("seek:comment-anchor", {
+        detail: { documentId, blockId: position.block.id, selectedText, from: startPos, to: endPos, relativeFrom, relativeTo, contextBefore, contextAfter },
+      }));
+    } catch {
+      // Selection is unavailable before the collaborative document is hydrated.
+    }
+  }), [documentId, editor]);
 
   const collaborationLabel = !online
     ? "网络离线，本地编辑中"
