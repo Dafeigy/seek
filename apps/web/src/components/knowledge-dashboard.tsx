@@ -18,6 +18,7 @@ import { collaborationCacheName } from "@/lib/collaboration-cache";
 import { DEFAULT_PROJECT, PRIVATE_PROJECTS, TEAM_PROJECTS, type DocumentSummary, type ProjectSummary } from "@/lib/documents";
 import { clearDocument } from "y-indexeddb";
 import { ProjectManagementDialog } from "@/components/project-management-dialog";
+import { useSidebarCompact } from "@/components/sidebar-state";
 
 function useDocuments() {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -483,7 +484,7 @@ function InDevelopmentContent({ page }: { page: Exclude<AppPage, "home" | "conve
 export function KnowledgeDashboard() {
   const pathname = usePathname();
   const currentPage: Exclude<AppPage, "document"> = pathname === "/conversations" ? "conversations" : pathname === "/meetings" ? "meetings" : pathname === "/inbox" ? "inbox" : pathname === "/search" ? "search" : "home";
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = useSidebarCompact();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [greeting] = useState(greetingForNow);
   const { documents } = useDocuments();
